@@ -22,7 +22,7 @@ struct AnimatedMomoView: View {
 
     private var scale: CGFloat {
         guard !reduceMotion, isAnimating else { return 1 }
-        switch cue {
+        return switch cue {
         case .gentleBounce, .celebrate: 1.055
         case .concernedPulse, .breathe: 1.03
         default: 1
@@ -36,7 +36,7 @@ struct AnimatedMomoView: View {
 
     private var verticalOffset: CGFloat {
         guard !reduceMotion, isAnimating else { return 0 }
-        switch cue {
+        return switch cue {
         case .idleFloat, .gentleBounce, .wave: -6
         case .celebrate: -12
         default: 0
