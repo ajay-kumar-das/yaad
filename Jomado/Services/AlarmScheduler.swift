@@ -53,7 +53,10 @@ final class AlarmScheduler {
     }
 
     func scheduledAlarmIDs() -> Set<UUID> {
-        Set(manager.alarms.map(\.id))
+        guard let alarms = try? manager.alarms else {
+            return []
+        }
+        return Set(alarms.map(\.id))
     }
 
     func schedule(
@@ -61,6 +64,11 @@ final class AlarmScheduler {
         content: ReminderContentItem,
         at date: Date
     ) async throws {
+        let stopButton = AlarmButton(
+            text: "Stop",
+            textColor: .white,
+            systemImageName: "stop.circle.fill"
+        )
         let openButton = AlarmButton(
             text: "Open Jomado",
             textColor: .white,
@@ -70,6 +78,7 @@ final class AlarmScheduler {
         let presentation = AlarmPresentation(
             alert: AlarmPresentation.Alert(
                 title: title,
+                stopButton: stopButton,
                 secondaryButton: openButton,
                 secondaryButtonBehavior: .custom
             )
