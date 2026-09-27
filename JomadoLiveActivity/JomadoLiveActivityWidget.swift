@@ -32,7 +32,11 @@ struct JomadoLiveActivityWidget: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.compactStatus)
+                    LiveStatusText(
+                        dueDate: context.state.dueDate,
+                        isCompleted: context.state.isCompleted,
+                        width: 64
+                    )
                         .font(.system(.caption, design: .rounded, weight: .bold))
                         .foregroundStyle(accent)
                         .contentTransition(.numericText())
@@ -53,7 +57,11 @@ struct JomadoLiveActivityWidget: Widget {
                 LiveMomoArtwork(expression: context.state.expression, size: 24)
                     .accessibilityHidden(true)
             } compactTrailing: {
-                Text(context.state.compactStatus)
+                LiveStatusText(
+                    dueDate: context.state.dueDate,
+                    isCompleted: context.state.isCompleted,
+                    width: 46
+                )
                     .font(.system(.caption2, design: .rounded, weight: .bold))
                     .foregroundStyle(accent)
                     .contentTransition(.numericText())
@@ -109,7 +117,11 @@ private struct JomadoLockScreenActivityView: View {
 
                 Spacer()
 
-                Text(context.state.compactStatus)
+                LiveStatusText(
+                    dueDate: context.state.dueDate,
+                    isCompleted: context.state.isCompleted,
+                    width: 64
+                )
                     .font(.system(.caption, design: .rounded, weight: .bold))
                     .foregroundStyle(accent)
                     .contentTransition(.numericText())
@@ -159,6 +171,29 @@ private struct JomadoLockScreenActivityView: View {
         .accessibilityLabel(
             "Jomado, \(context.attributes.routineName), \(stage.label). \(context.state.message)"
         )
+    }
+}
+
+private struct LiveStatusText: View {
+    let dueDate: Date
+    let isCompleted: Bool
+    let width: CGFloat
+
+    var body: some View {
+        Group {
+            if isCompleted {
+                Text("Done")
+            } else {
+                Text(
+                    timerInterval: dueDate...dueDate.addingTimeInterval(8 * 60 * 60),
+                    countsDown: false,
+                    showsHours: true
+                )
+                .monospacedDigit()
+                .accessibilityLabel("Time since reminder was due")
+            }
+        }
+        .frame(width: width, alignment: .trailing)
     }
 }
 

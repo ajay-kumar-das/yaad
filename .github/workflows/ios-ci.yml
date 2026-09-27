@@ -7,29 +7,69 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  verify:
     runs-on: macos-latest
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -n "$XCODE_PATH" ]]; then
+            sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          fi
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{split($2, parts, "."); print parts[1]}')"
+          test "$XCODE_MAJOR" -ge 26
 
       - name: Validate content
         run: python3 Scripts/validate_content.py
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: xcodegen generate --spec project.yml
 
-      - name: Build
+      - name: Build app and Live Activity
         run: |
           xcodebuild \
             -project Jomado.xcodeproj \
             -scheme Jomado \
-            -sdk iphonesimulator \
             -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(
+            xcrun simctl list devices available -j |
+            python3 -c 'import json, sys; data = json.load(sys.stdin); runtimes = sorted((key for key in data["devices"] if ".iOS-" in key), key=lambda key: tuple(map(int, key.rsplit(".iOS-", 1)[1].split("-"))), reverse=True); devices = [device for runtime in runtimes for device in data["devices"][runtime] if device.get("isAvailable") and device["name"].startswith("iPhone")]; print(devices[0]["udid"] if devices else "")'
+          )"
+          test -n "$DEVICE_ID"
+          xcodebuild \
+            -project Jomado.xcodeproj \
+            -scheme Jomado \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            test

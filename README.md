@@ -35,7 +35,7 @@ Validate the designer-owned content before generating the project:
 python3 Scripts/validate_content.py
 ```
 
-Before device testing, replace the placeholder bundle identifiers and App Group in `project.yml` and both entitlement files with identifiers registered to your Apple Developer account.
+Before device testing, register `com.ajaydas.jomado`, `com.ajaydas.jomado.liveactivity`, and `group.com.ajaydas.jomado.shared` in your Apple Developer account, then select your development team in Xcode. If those identifiers belong to a different account, change them together in `project.yml`, the app URL type, and both entitlement files.
 
 ## Key files
 

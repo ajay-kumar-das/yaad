@@ -8,6 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: 6.0
+    SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: 1.0.0
     CURRENT_PROJECT_VERSION: 1
 
@@ -20,7 +21,16 @@ targets:
     sources:
       - path: Jomado
       - path: Shared
-      - path: Resources
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: Resources/Content
+        type: folder
+        buildPhase: resources
+      - path: Resources/Mascots
+        type: folder
+        buildPhase: resources
 
     entitlements:
       path: Config/Jomado.entitlements
@@ -36,6 +46,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   JomadoLiveActivity:
     type: app-extension
