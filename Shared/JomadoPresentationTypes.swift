@@ -105,7 +105,7 @@ public enum ReminderUrgencyStage: String, Codable, CaseIterable, Hashable, Senda
         if isCompleted { return .completed }
 
         let overdue = now.timeIntervalSince(dueDate)
-        switch overdue {
+        return switch overdue {
         case ..<180: .normal
         case ..<600: .lightOverdue
         case ..<1_200: .mediumOverdue
@@ -208,4 +208,3 @@ public extension Color {
         self.init(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 }
-

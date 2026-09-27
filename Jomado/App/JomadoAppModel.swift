@@ -14,6 +14,10 @@ final class JomadoAppModel: ObservableObject {
     private var exposures: [ContentExposure] = []
     private var isBootstrapped = false
 
+    var liveActivitiesEnabled: Bool {
+        liveActivityCoordinator.activitiesEnabled
+    }
+
     init(now: Date = .now) {
         let occurrence = Self.makeDemoOccurrence(now: now)
         self.occurrence = occurrence
@@ -116,6 +120,20 @@ final class JomadoAppModel: ObservableObject {
             systemMessage = "A preview notification will arrive in about 5 seconds."
         } catch {
             systemMessage = "The preview notification could not be scheduled: \(error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    func requestNotificationAuthorization() async -> Bool {
+        do {
+            let granted = try await notificationScheduler.requestAuthorization()
+            systemMessage = granted
+                ? "Notifications are ready."
+                : "Notifications are off. You can enable them later in Settings."
+            return granted
+        } catch {
+            systemMessage = "Notification permission could not be requested: \(error.localizedDescription)"
+            return false
         }
     }
 
