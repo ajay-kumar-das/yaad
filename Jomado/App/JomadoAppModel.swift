@@ -113,6 +113,40 @@ final class JomadoAppModel: ObservableObject {
         }
     }
 
+    func createStarterRoutines(for types: Set<RoutineType>) async {
+        guard let routineCoordinator else { return }
+
+        let personality = ReminderPersonality(
+            rawValue: UserDefaults.standard.string(forKey: "jomado.defaultPersonality") ?? ""
+        ) ?? .playful
+        let intensity = ReminderIntensity(
+            rawValue: UserDefaults.standard.string(forKey: "jomado.defaultIntensity") ?? ""
+        ) ?? .balanced
+        let drafts = types
+            .sorted { $0.rawValue < $1.rawValue }
+            .compactMap { Self.starterDraft(for: $0, personality: personality, intensity: intensity) }
+
+        guard !drafts.isEmpty else { return }
+
+        do {
+            try await routineCoordinator.saveStarterRoutines(drafts)
+            systemMessage = drafts.count == 1
+                ? "Your starter routine is ready."
+                : "Your starter routines are ready."
+        } catch {
+            systemMessage = "Starter routines could not be created: \(error.localizedDescription)"
+        }
+    }
+
+    func updateRoutine(id: UUID, draft: RoutineDraft) async {
+        do {
+            try await routineCoordinator?.update(routineID: id, draft: draft)
+            systemMessage = "Routine updated and delivery schedule refreshed."
+        } catch {
+            systemMessage = "The routine could not be updated: \(error.localizedDescription)"
+        }
+    }
+
     func setRoutineEnabled(id: UUID, enabled: Bool) async {
         do {
             try await routineCoordinator?.setEnabled(routineID: id, enabled: enabled)
@@ -380,8 +414,37 @@ final class JomadoAppModel: ObservableObject {
 
     func handle(url: URL) {
         guard url.scheme == "jomado" else { return }
-        if url.host == "occurrence" || url.host == "today" {
-            openReminder()
+
+        if url.host == "today" {
+            selectedTab = .today
+            return
+        }
+
+        guard
+            url.host == "occurrence",
+            let rawID = url.pathComponents.dropFirst().first,
+            let occurrenceID = UUID(uuidString: rawID)
+        else { return }
+
+        Task { @MainActor in
+            await openOccurrence(occurrenceID: occurrenceID)
+        }
+    }
+
+    private func openOccurrence(occurrenceID: UUID) async {
+        guard let coordinator = routineCoordinator else { return }
+        do {
+            guard let persisted = try await coordinator.openOccurrence(occurrenceID: occurrenceID) else {
+                systemMessage = "That reminder is no longer available."
+                return
+            }
+            occurrence = persisted
+            exposures.removeAll()
+            await refreshPresentation(at: .now, force: true)
+            selectedTab = .today
+            isReminderPresented = !persisted.status.isTerminal
+        } catch {
+            systemMessage = "The reminder could not be opened: \(error.localizedDescription)"
         }
     }
 
@@ -459,7 +522,10 @@ final class JomadoAppModel: ObservableObject {
             occurrenceSlot: occurrence.dueDate.formatted(.dateTime.year().month().day().hour().minute()),
             date: now
         )
-        let content = await contentRepository.select(context: context, exposures: exposures)
+        let selectedContent = await contentRepository.select(context: context, exposures: exposures)
+        let content = storedRoutine?.contentTipEnabled == false
+            ? selectedContent.replacingInAppTip(nil)
+            : selectedContent
         let statusText = ReminderPresentation.statusText(
             stage: stage,
             dueDate: occurrence.dueDate,
@@ -479,6 +545,70 @@ final class JomadoAppModel: ObservableObject {
         if !occurrence.status.isTerminal {
             await liveActivityCoordinator.update(occurrence: occurrence, presentation: presentation)
         }
+    }
+
+    private static func starterDraft(
+        for type: RoutineType,
+        personality: ReminderPersonality,
+        intensity: ReminderIntensity
+    ) -> RoutineDraft? {
+        let daily = Set(Weekday.allCases)
+        let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
+        let schedule: RoutineSchedule
+
+        switch type {
+        case .hydration:
+            schedule = .interval(
+                start: LocalTime(hour: 8, minute: 0),
+                end: LocalTime(hour: 22, minute: 0),
+                everyMinutes: 120,
+                weekdays: daily
+            )
+        case .eyeCare:
+            schedule = .interval(
+                start: LocalTime(hour: 9, minute: 0),
+                end: LocalTime(hour: 18, minute: 0),
+                everyMinutes: 60,
+                weekdays: weekdays
+            )
+        case .posture:
+            schedule = .interval(
+                start: LocalTime(hour: 9, minute: 0),
+                end: LocalTime(hour: 18, minute: 0),
+                everyMinutes: 90,
+                weekdays: weekdays
+            )
+        case .exercise:
+            schedule = .fixed(times: [LocalTime(hour: 18, minute: 0)], weekdays: [.monday, .wednesday, .friday])
+        case .stretching:
+            schedule = .fixed(
+                times: [LocalTime(hour: 8, minute: 0), LocalTime(hour: 20, minute: 0)],
+                weekdays: daily
+            )
+        case .breathing:
+            schedule = .fixed(times: [LocalTime(hour: 12, minute: 0)], weekdays: daily)
+        case .meditation:
+            schedule = .fixed(times: [LocalTime(hour: 7, minute: 0)], weekdays: daily)
+        case .yoga:
+            schedule = .fixed(times: [LocalTime(hour: 7, minute: 30)], weekdays: daily)
+        case .sleep:
+            schedule = .fixed(times: [LocalTime(hour: 22, minute: 30)], weekdays: daily)
+        case .custom, .generic:
+            return nil
+        }
+
+        return RoutineDraft(
+            type: type,
+            name: type.displayName,
+            schedule: schedule,
+            deliveryMode: .companionOnly,
+            personality: personality,
+            intensity: intensity,
+            smartSnoozeEnabled: true,
+            snoozeMinutes: 10,
+            maxSnoozes: 3,
+            goal: type == .hydration ? "Build a steady hydration habit" : nil
+        )
     }
 
     private static func makeDemoOccurrence(now: Date) -> ReminderOccurrence {

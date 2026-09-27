@@ -240,3 +240,35 @@ extension ReminderContentItem {
         )
     }
 }
+
+extension ReminderContentItem {
+    func replacingInAppTip(_ tip: String?) -> ReminderContentItem {
+        ReminderContentItem(
+            id: id,
+            routineType: routineType,
+            stage: stage,
+            personality: personality,
+            intensity: intensity,
+            locale: locale,
+            variants: ContentVariants(
+                notification: variants.notification,
+                liveActivity: variants.liveActivity,
+                inApp: InAppCopy(
+                    eyebrow: variants.inApp.eyebrow,
+                    headline: variants.inApp.headline,
+                    body: variants.inApp.body,
+                    tip: tip,
+                    completionLabel: variants.inApp.completionLabel
+                )
+            ),
+            mascot: mascot,
+            tags: tags,
+            dayparts: dayparts,
+            cooldownMinutes: cooldownMinutes,
+            semanticFamily: semanticFamily,
+            priority: priority,
+            enabled: enabled,
+            safety: safety
+        )
+    }
+}

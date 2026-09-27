@@ -2,9 +2,9 @@ import AppIntents
 import Foundation
 
 struct StopJomadoAlarmIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Stop Jomado Alarm"
-    static var description = IntentDescription("Acknowledges a Jomado alarm without completing the routine.")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Stop Jomado Alarm"
+    static let description = IntentDescription("Acknowledges a Jomado alarm without completing the routine.")
+    static let openAppWhenRun = false
 
     @Parameter(title: "Routine ID")
     var routineID: String
@@ -39,9 +39,9 @@ struct StopJomadoAlarmIntent: LiveActivityIntent {
 }
 
 struct OpenJomadoAlarmIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Open Jomado"
-    static var description = IntentDescription("Opens Jomado for the active routine reminder.")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Open Jomado"
+    static let description = IntentDescription("Opens Jomado for the active routine reminder.")
+    static let openAppWhenRun = true
 
     @Parameter(title: "Routine ID")
     var routineID: String

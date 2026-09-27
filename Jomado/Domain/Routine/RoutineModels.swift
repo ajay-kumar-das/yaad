@@ -98,6 +98,9 @@ struct RoutineInstance: Identifiable, Codable, Hashable, Sendable {
     var completionLabel: String
     let createdAt: Date
     var updatedAt: Date
+    var mascotID: String = "momo"
+    var goal: String? = nil
+    var contentTipEnabled: Bool = true
 }
 
 struct RoutineDraft: Hashable, Sendable {
@@ -110,6 +113,12 @@ struct RoutineDraft: Hashable, Sendable {
     var smartSnoozeEnabled: Bool
     var snoozeMinutes: Int
     var maxSnoozes: Int
+    var symbolName: String? = nil
+    var accentHex: String? = nil
+    var completionLabel: String? = nil
+    var mascotID: String = "momo"
+    var goal: String? = nil
+    var contentTipEnabled: Bool = true
 
     func materialize(id: UUID = UUID(), now: Date = .now) -> RoutineInstance {
         RoutineInstance(
@@ -118,8 +127,8 @@ struct RoutineDraft: Hashable, Sendable {
             name: name,
             enabled: true,
             type: type,
-            symbolName: type.symbolName,
-            accentHex: type.accentHex,
+            symbolName: symbolName ?? type.symbolName,
+            accentHex: accentHex ?? type.accentHex,
             schedule: schedule,
             deliveryMode: deliveryMode,
             personality: personality,
@@ -127,9 +136,12 @@ struct RoutineDraft: Hashable, Sendable {
             smartSnoozeEnabled: smartSnoozeEnabled,
             snoozeMinutes: snoozeMinutes,
             maxSnoozes: maxSnoozes,
-            completionLabel: type.defaultCompletionLabel,
+            completionLabel: completionLabel ?? type.defaultCompletionLabel,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            mascotID: mascotID,
+            goal: goal,
+            contentTipEnabled: contentTipEnabled
         )
     }
 }

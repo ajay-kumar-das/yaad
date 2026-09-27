@@ -7,9 +7,17 @@ struct OnboardingFlowView: View {
     @State private var step = 1
     @State private var ageRange = "25–34"
     @State private var gender = "Prefer not to say"
-    @State private var selectedGoals: Set<String> = ["Stay healthy", "Build routine"]
+    @State private var selectedGoals: Set<String> = ["Stay healthy", "Reduce screen strain", "Build consistency"]
     @State private var selectedRoutines: Set<RoutineType> = [.hydration]
     @State private var notificationsEnabled = false
+    @State private var alarmEnabled = false
+    @State private var isEnablingPermissions = false
+    @State private var showLearnMore = false
+
+    @AppStorage("jomado.profile.ageRange") private var storedAgeRange = ""
+    @AppStorage("jomado.profile.gender") private var storedGender = ""
+    @AppStorage("jomado.profile.goals") private var storedGoals = ""
+    @AppStorage("jomado.profile.focusAreas") private var storedFocusAreas = ""
 
     var body: some View {
         ZStack {
@@ -24,7 +32,8 @@ struct OnboardingFlowView: View {
                         case 1: welcomeContent
                         case 2: profileContent
                         case 3: focusContent
-                        default: permissionsContent
+                        case 4: permissionsContent
+                        default: allSetContent
                         }
                     }
                     .id(step)
@@ -37,6 +46,9 @@ struct OnboardingFlowView: View {
         }
         .preferredColorScheme(.light)
         .animation(.spring(response: 0.45, dampingFraction: 0.86), value: step)
+        .sheet(isPresented: $showLearnMore) {
+            learnMoreSheet
+        }
     }
 
     private var hero: some View {
@@ -44,7 +56,7 @@ struct OnboardingFlowView: View {
             JomadoLandscapeBackground()
 
             HStack {
-                if step > 1 {
+                if step > 1 && step < 5 {
                     Button {
                         step -= 1
                     } label: {
@@ -60,7 +72,7 @@ struct OnboardingFlowView: View {
                 JomadoBrandWordmark()
                 Spacer()
 
-                if step > 1 {
+                if (2...4).contains(step) {
                     VStack(alignment: .trailing, spacing: 7) {
                         JomadoStepIndicator(current: step, total: 4)
                         Text("Step \(step) of 4")
@@ -73,18 +85,20 @@ struct OnboardingFlowView: View {
             .padding(.top, 12)
 
             AnimatedMomoView(
-                expression: step == 4 ? .hopeful : .hello,
-                cue: step == 4 ? .gentleBounce : .wave,
-                accessibilityLabel: "Momo welcomes you to Jomado"
+                expression: step == 5 ? .celebrating : (step == 4 ? .hopeful : .hello),
+                cue: step == 5 ? .celebrate : (step == 4 ? .gentleBounce : .wave),
+                accessibilityLabel: step == 5 ? "Momo celebrates that setup is complete" : "Momo welcomes you to Jomado"
             )
-            .frame(width: step == 1 ? 224 : 176, height: step == 1 ? 224 : 176)
-            .offset(x: step == 1 ? -34 : 34, y: step == 1 ? 52 : 58)
+            .frame(width: step == 1 || step == 5 ? 224 : 184, height: step == 1 || step == 5 ? 224 : 184)
+            .offset(x: step == 1 ? -34 : (step == 5 ? 0 : 30), y: step == 1 ? 52 : 54)
 
-            JomadoSpeechBubble(text: heroMessage)
-                .frame(maxWidth: 182)
-                .offset(x: step == 1 ? 102 : -92, y: 82)
+            if step != 5 {
+                JomadoSpeechBubble(text: heroMessage)
+                    .frame(maxWidth: 190)
+                    .offset(x: step == 1 ? 102 : -92, y: 82)
+            }
         }
-        .frame(height: step == 1 ? 310 : 244)
+        .frame(height: step == 1 || step == 5 ? 310 : 252)
     }
 
     private var heroMessage: String {
@@ -92,7 +106,7 @@ struct OnboardingFlowView: View {
         case 1: "Small steps create a brighter, healthier you! 💙"
         case 2: "Let’s tailor Jomado to you! 💙"
         case 3: "Pick what matters most to you!"
-        default: "A few quick permissions help me take care of you!"
+        default: "A few quick permissions help me take care of you! 💙"
         }
     }
 
@@ -124,7 +138,7 @@ struct OnboardingFlowView: View {
 
             nextButton(title: "Get Started", target: 2)
 
-            Button("Learn More") {}
+            Button("Learn More") { showLearnMore = true }
                 .font(.system(.body, design: .rounded, weight: .bold))
                 .foregroundStyle(JomadoTheme.blue)
                 .frame(minHeight: 44)
@@ -139,7 +153,7 @@ struct OnboardingFlowView: View {
 
             profileCard(title: "How old are you?", subtitle: "This helps us tailor your experience.") {
                 Picker("Age range", selection: $ageRange) {
-                    ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55+"], id: \.self) {
+                    ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55–64", "65+"], id: \.self) {
                         Text($0).tag($0)
                     }
                 }
@@ -151,17 +165,25 @@ struct OnboardingFlowView: View {
                 .background(JomadoTheme.sky.opacity(0.52), in: RoundedRectangle(cornerRadius: 14))
             }
 
-            profileCard(title: "What’s your gender?", subtitle: "Choose the option that fits you.") {
-                HStack(spacing: 8) {
-                    ForEach(["Female", "Male", "Non-binary"], id: \.self) { option in
+            profileCard(title: "What’s your gender?", subtitle: "Optional — choose what fits you.") {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(["Woman", "Man", "Non-binary"], id: \.self) { option in
                         choiceButton(title: option, symbol: "person.fill", selected: gender == option) {
                             gender = option
                         }
                     }
                 }
+                HStack(spacing: 8) {
+                    choiceButton(title: "Self describe", symbol: "pencil", selected: gender == "Self describe") {
+                        gender = "Self describe"
+                    }
+                    choiceButton(title: "Prefer not to say", symbol: "hand.raised.fill", selected: gender == "Prefer not to say") {
+                        gender = "Prefer not to say"
+                    }
+                }
             }
 
-            profileCard(title: "What are your wellness goals?", subtitle: "Choose all that apply.") {
+            profileCard(title: "What are your wellness goals?", subtitle: "Choose all that apply. You can change these later.") {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
                     ForEach(goalOptions) { goal in
                         choiceButton(
@@ -179,7 +201,13 @@ struct OnboardingFlowView: View {
                 }
             }
 
-            nextButton(title: "Next", target: 3)
+            Label("These details stay on your device and help personalize your experience.", systemImage: "lock.fill")
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(JomadoTheme.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+
+            nextButton(title: "Continue", target: 3)
         }
     }
 
@@ -229,27 +257,30 @@ struct OnboardingFlowView: View {
                 }
             }
 
-            nextButton(title: "Next", target: 4)
+            nextButton(title: "Continue", target: 4)
 
-            Button("Maybe later") { step = 4 }
-                .font(.system(.body, design: .rounded, weight: .bold))
-                .foregroundStyle(JomadoTheme.blue)
-                .frame(minHeight: 44)
+            Button("Maybe later") {
+                selectedRoutines.removeAll()
+                step = 4
+            }
+            .font(.system(.body, design: .rounded, weight: .bold))
+            .foregroundStyle(JomadoTheme.blue)
+            .frame(minHeight: 44)
         }
     }
 
     private var permissionsContent: some View {
         VStack(spacing: 16) {
             onboardingTitle("Let’s get Jomado", accent: "ready to help you!")
-            Text("Enable the system surfaces that deliver reminders, show timely updates, and keep your routines within reach.")
+            Text("These permissions help Jomado send reminders, keep you on track, and show timely updates — so you never miss a chance to take care of yourself.")
                 .onboardingSubtitle()
 
             permissionRow(
                 title: "Notifications",
-                subtitle: "Friendly reminders and completion actions.",
+                subtitle: "Friendly reminders, motivational messages, and progress updates.",
                 symbol: "bell.fill",
                 color: Color(jomadoHex: "FF4D5A"),
-                status: notificationsEnabled ? "Enabled" : "Not enabled",
+                status: notificationsEnabled ? "Allowed" : "Not enabled",
                 enabled: notificationsEnabled
             )
 
@@ -258,13 +289,13 @@ struct OnboardingFlowView: View {
                 subtitle: "Optional sound reminders for important routines.",
                 symbol: "alarm.fill",
                 color: JomadoTheme.blue,
-                status: "Coming next",
-                enabled: false
+                status: alarmEnabled ? "Allowed" : "Not enabled",
+                enabled: alarmEnabled
             )
 
             permissionRow(
                 title: "Live Activities",
-                subtitle: "Persistent status on the Lock Screen and Dynamic Island.",
+                subtitle: "Show your next reminder on the Lock Screen and Dynamic Island.",
                 symbol: "iphone.gen3",
                 color: Color(jomadoHex: "20C8B4"),
                 status: model.liveActivitiesEnabled ? "Available" : "Disabled",
@@ -272,20 +303,129 @@ struct OnboardingFlowView: View {
             )
 
             Button {
+                Task { await enablePermissionsSequentially() }
+            } label: {
+                if isEnablingPermissions {
+                    ProgressView()
+                        .tint(.white)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Enable All", systemImage: "arrow.right")
+                }
+            }
+            .buttonStyle(JomadoPrimaryButtonStyle())
+            .disabled(isEnablingPermissions)
+
+            Button("Maybe Later") { step = 5 }
+                .font(.system(.body, design: .rounded, weight: .bold))
+                .foregroundStyle(JomadoTheme.blue)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(.white.opacity(0.76), in: Capsule())
+        }
+    }
+
+    private var allSetContent: some View {
+        VStack(spacing: 18) {
+            onboardingTitle("You’re", accent: "all set!")
+            Text("Momo is ready. Your starter routines and reminder preferences can be changed anytime.")
+                .onboardingSubtitle()
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Readiness")
+                    .font(.system(.headline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(JomadoTheme.navy)
+
+                readinessLine(title: "Notifications", enabled: notificationsEnabled)
+                readinessLine(title: "Alarms & Alerts", enabled: alarmEnabled)
+                readinessLine(title: "Live Activities", enabled: model.liveActivitiesEnabled)
+            }
+            .jomadoCard()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Your focus areas")
+                    .font(.system(.headline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(JomadoTheme.navy)
+
+                if selectedRoutines.isEmpty {
+                    Text("No starter routines selected — you can add one anytime from Routines.")
+                        .font(.system(.subheadline, design: .rounded))
+                        .foregroundStyle(JomadoTheme.secondaryText)
+                } else {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
+                        ForEach(focusRoutines.filter(selectedRoutines.contains), id: \.self) { routine in
+                            Label(routine.displayName, systemImage: routine.symbolName)
+                                .font(.system(.caption, design: .rounded, weight: .bold))
+                                .foregroundStyle(JomadoTheme.navy)
+                                .padding(.horizontal, 10)
+                                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                                .background(Color(jomadoHex: routine.accentHex).opacity(0.1), in: RoundedRectangle(cornerRadius: 13))
+                        }
+                    }
+                }
+            }
+            .jomadoCard()
+
+            Button {
+                persistSelections()
                 Task {
-                    notificationsEnabled = await model.requestNotificationAuthorization()
+                    await model.createStarterRoutines(for: selectedRoutines)
                     onFinish()
                 }
             } label: {
-                Label("Enable All", systemImage: "arrow.right")
+                Label("Start My Journey", systemImage: "arrow.right")
             }
             .buttonStyle(JomadoPrimaryButtonStyle())
-
-            Button("Maybe later", action: onFinish)
-                .font(.system(.body, design: .rounded, weight: .bold))
-                .foregroundStyle(JomadoTheme.blue)
-                .frame(minHeight: 44)
         }
+    }
+
+    private var learnMoreSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 18) {
+                    AnimatedMomoView(
+                        expression: .hello,
+                        cue: .wave,
+                        accessibilityLabel: "Momo introduces Jomado"
+                    )
+                    .frame(width: 160, height: 160)
+
+                    Text("A companion for small daily habits")
+                        .font(.system(.title2, design: .rounded, weight: .heavy))
+                        .foregroundStyle(JomadoTheme.navy)
+                        .multilineTextAlignment(.center)
+
+                    walkthroughRow("Friendly reminders", "Messages adapt to your routine, personality, and urgency.", "message.fill")
+                    walkthroughRow("Clear outcomes", "Complete, remind later, or skip — dismissing never pretends you completed a habit.", "checkmark.circle.fill")
+                    walkthroughRow("Works with iOS", "Notifications, alarms, and Live Activities are used only when the system allows them.", "iphone")
+                }
+                .padding(24)
+            }
+            .jomadoPageBackground()
+            .navigationTitle("About Jomado")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { showLearnMore = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func walkthroughRow(_ title: String, _ body: String, _ symbol: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            JomadoIconBadge(symbol: symbol, color: JomadoTheme.cyan, size: 48)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(JomadoTheme.navy)
+                Text(body)
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundStyle(JomadoTheme.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .jomadoCard()
     }
 
     private func onboardingTitle(_ first: String, accent: String) -> some View {
@@ -391,6 +531,38 @@ struct OnboardingFlowView: View {
         .jomadoCard()
     }
 
+    private func readinessLine(title: String, enabled: Bool) -> some View {
+        HStack {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(enabled ? JomadoTheme.success : Color(jomadoHex: "FFB020"))
+            Text(title)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(JomadoTheme.navy)
+            Spacer()
+            Text(enabled ? "Ready" : "Can enable later")
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(JomadoTheme.secondaryText)
+        }
+    }
+
+    private func enablePermissionsSequentially() async {
+        guard !isEnablingPermissions else { return }
+        isEnablingPermissions = true
+        notificationsEnabled = await model.requestNotificationAuthorization()
+        if !selectedRoutines.isEmpty {
+            alarmEnabled = await model.requestAlarmAuthorization()
+        }
+        isEnablingPermissions = false
+        step = 5
+    }
+
+    private func persistSelections() {
+        storedAgeRange = ageRange
+        storedGender = gender
+        storedGoals = selectedGoals.sorted().joined(separator: "|")
+        storedFocusAreas = selectedRoutines.map(\.rawValue).sorted().joined(separator: "|")
+    }
+
     private func focusSubtitle(for routine: RoutineType) -> String {
         switch routine {
         case .hydration: "Drink more water"
@@ -422,7 +594,7 @@ struct OnboardingFlowView: View {
     }
 
     private var focusRoutines: [RoutineType] {
-        [.hydration, .exercise, .stretching, .eyeCare, .breathing, .meditation, .posture, .yoga, .sleep, .custom]
+        [.hydration, .exercise, .stretching, .eyeCare, .posture, .breathing, .meditation, .yoga, .sleep, .custom]
     }
 
     private var goalOptions: [OnboardingChoice] {
@@ -432,7 +604,9 @@ struct OnboardingFlowView: View {
             OnboardingChoice(title: "Reduce screen strain", symbol: "laptopcomputer"),
             OnboardingChoice(title: "Improve focus", symbol: "brain.head.profile"),
             OnboardingChoice(title: "Manage stress", symbol: "leaf.fill"),
-            OnboardingChoice(title: "Build routine", symbol: "chart.bar.fill")
+            OnboardingChoice(title: "Build consistency", symbol: "chart.bar.fill"),
+            OnboardingChoice(title: "Improve sleep", symbol: "moon.stars.fill"),
+            OnboardingChoice(title: "Improve mobility", symbol: "figure.flexibility")
         ]
     }
 }

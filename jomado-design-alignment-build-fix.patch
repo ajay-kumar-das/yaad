@@ -1,0 +1,2567 @@
+diff --git a/Jomado/App/JomadoAppModel.swift b/Jomado/App/JomadoAppModel.swift
+index 6b6fb95..0a0809d 100644
+--- a/Jomado/App/JomadoAppModel.swift
++++ b/Jomado/App/JomadoAppModel.swift
+@@ -113,6 +113,40 @@ final class JomadoAppModel: ObservableObject {
+         }
+     }
+ 
++    func createStarterRoutines(for types: Set<RoutineType>) async {
++        guard let routineCoordinator else { return }
++
++        let personality = ReminderPersonality(
++            rawValue: UserDefaults.standard.string(forKey: "jomado.defaultPersonality") ?? ""
++        ) ?? .playful
++        let intensity = ReminderIntensity(
++            rawValue: UserDefaults.standard.string(forKey: "jomado.defaultIntensity") ?? ""
++        ) ?? .balanced
++        let drafts = types
++            .sorted { $0.rawValue < $1.rawValue }
++            .compactMap { Self.starterDraft(for: $0, personality: personality, intensity: intensity) }
++
++        guard !drafts.isEmpty else { return }
++
++        do {
++            try await routineCoordinator.saveStarterRoutines(drafts)
++            systemMessage = drafts.count == 1
++                ? "Your starter routine is ready."
++                : "Your starter routines are ready."
++        } catch {
++            systemMessage = "Starter routines could not be created: \(error.localizedDescription)"
++        }
++    }
++
++    func updateRoutine(id: UUID, draft: RoutineDraft) async {
++        do {
++            try await routineCoordinator?.update(routineID: id, draft: draft)
++            systemMessage = "Routine updated and delivery schedule refreshed."
++        } catch {
++            systemMessage = "The routine could not be updated: \(error.localizedDescription)"
++        }
++    }
++
+     func setRoutineEnabled(id: UUID, enabled: Bool) async {
+         do {
+             try await routineCoordinator?.setEnabled(routineID: id, enabled: enabled)
+@@ -380,8 +414,37 @@ final class JomadoAppModel: ObservableObject {
+ 
+     func handle(url: URL) {
+         guard url.scheme == "jomado" else { return }
+-        if url.host == "occurrence" || url.host == "today" {
+-            openReminder()
++
++        if url.host == "today" {
++            selectedTab = .today
++            return
++        }
++
++        guard
++            url.host == "occurrence",
++            let rawID = url.pathComponents.dropFirst().first,
++            let occurrenceID = UUID(uuidString: rawID)
++        else { return }
++
++        Task { @MainActor in
++            await openOccurrence(occurrenceID: occurrenceID)
++        }
++    }
++
++    private func openOccurrence(occurrenceID: UUID) async {
++        guard let coordinator = routineCoordinator else { return }
++        do {
++            guard let persisted = try await coordinator.openOccurrence(occurrenceID: occurrenceID) else {
++                systemMessage = "That reminder is no longer available."
++                return
++            }
++            occurrence = persisted
++            exposures.removeAll()
++            await refreshPresentation(at: .now, force: true)
++            selectedTab = .today
++            isReminderPresented = !persisted.status.isTerminal
++        } catch {
++            systemMessage = "The reminder could not be opened: \(error.localizedDescription)"
+         }
+     }
+ 
+@@ -459,7 +522,10 @@ final class JomadoAppModel: ObservableObject {
+             occurrenceSlot: occurrence.dueDate.formatted(.dateTime.year().month().day().hour().minute()),
+             date: now
+         )
+-        let content = await contentRepository.select(context: context, exposures: exposures)
++        let selectedContent = await contentRepository.select(context: context, exposures: exposures)
++        let content = storedRoutine?.contentTipEnabled == false
++            ? selectedContent.replacingInAppTip(nil)
++            : selectedContent
+         let statusText = ReminderPresentation.statusText(
+             stage: stage,
+             dueDate: occurrence.dueDate,
+@@ -481,6 +547,70 @@ final class JomadoAppModel: ObservableObject {
+         }
+     }
+ 
++    private static func starterDraft(
++        for type: RoutineType,
++        personality: ReminderPersonality,
++        intensity: ReminderIntensity
++    ) -> RoutineDraft? {
++        let daily = Set(Weekday.allCases)
++        let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
++        let schedule: RoutineSchedule
++
++        switch type {
++        case .hydration:
++            schedule = .interval(
++                start: LocalTime(hour: 8, minute: 0),
++                end: LocalTime(hour: 22, minute: 0),
++                everyMinutes: 120,
++                weekdays: daily
++            )
++        case .eyeCare:
++            schedule = .interval(
++                start: LocalTime(hour: 9, minute: 0),
++                end: LocalTime(hour: 18, minute: 0),
++                everyMinutes: 60,
++                weekdays: weekdays
++            )
++        case .posture:
++            schedule = .interval(
++                start: LocalTime(hour: 9, minute: 0),
++                end: LocalTime(hour: 18, minute: 0),
++                everyMinutes: 90,
++                weekdays: weekdays
++            )
++        case .exercise:
++            schedule = .fixed(times: [LocalTime(hour: 18, minute: 0)], weekdays: [.monday, .wednesday, .friday])
++        case .stretching:
++            schedule = .fixed(
++                times: [LocalTime(hour: 8, minute: 0), LocalTime(hour: 20, minute: 0)],
++                weekdays: daily
++            )
++        case .breathing:
++            schedule = .fixed(times: [LocalTime(hour: 12, minute: 0)], weekdays: daily)
++        case .meditation:
++            schedule = .fixed(times: [LocalTime(hour: 7, minute: 0)], weekdays: daily)
++        case .yoga:
++            schedule = .fixed(times: [LocalTime(hour: 7, minute: 30)], weekdays: daily)
++        case .sleep:
++            schedule = .fixed(times: [LocalTime(hour: 22, minute: 30)], weekdays: daily)
++        case .custom, .generic:
++            return nil
++        }
++
++        return RoutineDraft(
++            type: type,
++            name: type.displayName,
++            schedule: schedule,
++            deliveryMode: .companionOnly,
++            personality: personality,
++            intensity: intensity,
++            smartSnoozeEnabled: true,
++            snoozeMinutes: 10,
++            maxSnoozes: 3,
++            goal: type == .hydration ? "Build a steady hydration habit" : nil
++        )
++    }
++
+     private static func makeDemoOccurrence(now: Date) -> ReminderOccurrence {
+         ReminderOccurrence(
+             id: UUID(uuidString: "A11CE000-0000-4000-8000-000000000001")!,
+diff --git a/Jomado/Domain/Content/ContentModels.swift b/Jomado/Domain/Content/ContentModels.swift
+index 6fd0e29..9c0f9b6 100644
+--- a/Jomado/Domain/Content/ContentModels.swift
++++ b/Jomado/Domain/Content/ContentModels.swift
+@@ -240,3 +240,35 @@ extension ReminderContentItem {
+         )
+     }
+ }
++
++extension ReminderContentItem {
++    func replacingInAppTip(_ tip: String?) -> ReminderContentItem {
++        ReminderContentItem(
++            id: id,
++            routineType: routineType,
++            stage: stage,
++            personality: personality,
++            intensity: intensity,
++            locale: locale,
++            variants: ContentVariants(
++                notification: variants.notification,
++                liveActivity: variants.liveActivity,
++                inApp: InAppCopy(
++                    eyebrow: variants.inApp.eyebrow,
++                    headline: variants.inApp.headline,
++                    body: variants.inApp.body,
++                    tip: tip,
++                    completionLabel: variants.inApp.completionLabel
++                )
++            ),
++            mascot: mascot,
++            tags: tags,
++            dayparts: dayparts,
++            cooldownMinutes: cooldownMinutes,
++            semanticFamily: semanticFamily,
++            priority: priority,
++            enabled: enabled,
++            safety: safety
++        )
++    }
++}
+diff --git a/Jomado/Domain/Routine/RoutineModels.swift b/Jomado/Domain/Routine/RoutineModels.swift
+index 8d02bb6..5d1bdec 100644
+--- a/Jomado/Domain/Routine/RoutineModels.swift
++++ b/Jomado/Domain/Routine/RoutineModels.swift
+@@ -98,6 +98,9 @@ struct RoutineInstance: Identifiable, Codable, Hashable, Sendable {
+     var completionLabel: String
+     let createdAt: Date
+     var updatedAt: Date
++    var mascotID: String = "momo"
++    var goal: String? = nil
++    var contentTipEnabled: Bool = true
+ }
+ 
+ struct RoutineDraft: Hashable, Sendable {
+@@ -110,6 +113,12 @@ struct RoutineDraft: Hashable, Sendable {
+     var smartSnoozeEnabled: Bool
+     var snoozeMinutes: Int
+     var maxSnoozes: Int
++    var symbolName: String? = nil
++    var accentHex: String? = nil
++    var completionLabel: String? = nil
++    var mascotID: String = "momo"
++    var goal: String? = nil
++    var contentTipEnabled: Bool = true
+ 
+     func materialize(id: UUID = UUID(), now: Date = .now) -> RoutineInstance {
+         RoutineInstance(
+@@ -118,8 +127,8 @@ struct RoutineDraft: Hashable, Sendable {
+             name: name,
+             enabled: true,
+             type: type,
+-            symbolName: type.symbolName,
+-            accentHex: type.accentHex,
++            symbolName: symbolName ?? type.symbolName,
++            accentHex: accentHex ?? type.accentHex,
+             schedule: schedule,
+             deliveryMode: deliveryMode,
+             personality: personality,
+@@ -127,9 +136,12 @@ struct RoutineDraft: Hashable, Sendable {
+             smartSnoozeEnabled: smartSnoozeEnabled,
+             snoozeMinutes: snoozeMinutes,
+             maxSnoozes: maxSnoozes,
+-            completionLabel: type.defaultCompletionLabel,
++            completionLabel: completionLabel ?? type.defaultCompletionLabel,
+             createdAt: now,
+-            updatedAt: now
++            updatedAt: now,
++            mascotID: mascotID,
++            goal: goal,
++            contentTipEnabled: contentTipEnabled
+         )
+     }
+ }
+diff --git a/Jomado/Domain/Routine/RoutineSchedulePlanner.swift b/Jomado/Domain/Routine/RoutineSchedulePlanner.swift
+index be19309..246b035 100644
+--- a/Jomado/Domain/Routine/RoutineSchedulePlanner.swift
++++ b/Jomado/Domain/Routine/RoutineSchedulePlanner.swift
+@@ -20,10 +20,22 @@ enum RoutineSchedulePlanner {
+             if let weekday, routine.schedule.weekdays.contains(weekday) {
+                 switch routine.schedule {
+                 case .interval(let start, let end, let everyMinutes, _):
+-                    guard everyMinutes > 0, start <= end else { break }
+-                    var minute = start.minutesFromMidnight
+-                    while minute <= end.minutesFromMidnight {
+-                        if let date = date(on: day, minuteOfDay: minute, calendar: calendar),
++                    guard everyMinutes > 0 else { break }
++
++                    let startMinute = start.minutesFromMidnight
++                    let endMinute = end.minutesFromMidnight
++                    let finalMinute = endMinute >= startMinute
++                        ? endMinute
++                        : 24 * 60 + endMinute
++
++                    var minute = startMinute
++                    while minute <= finalMinute {
++                        let dayOffset = minute / (24 * 60)
++                        let minuteOfDay = minute % (24 * 60)
++                        guard let occurrenceDay = calendar.date(byAdding: .day, value: dayOffset, to: day) else {
++                            break
++                        }
++                        if let date = date(on: occurrenceDay, minuteOfDay: minuteOfDay, calendar: calendar),
+                            date >= startDate,
+                            date <= endDate {
+                             result.append(date)
+diff --git a/Jomado/Features/Onboarding/OnboardingFlowView.swift b/Jomado/Features/Onboarding/OnboardingFlowView.swift
+index d2ff8ac..d42ac0f 100644
+--- a/Jomado/Features/Onboarding/OnboardingFlowView.swift
++++ b/Jomado/Features/Onboarding/OnboardingFlowView.swift
+@@ -7,9 +7,17 @@ struct OnboardingFlowView: View {
+     @State private var step = 1
+     @State private var ageRange = "25–34"
+     @State private var gender = "Prefer not to say"
+-    @State private var selectedGoals: Set<String> = ["Stay healthy", "Build routine"]
++    @State private var selectedGoals: Set<String> = ["Stay healthy", "Reduce screen strain", "Build consistency"]
+     @State private var selectedRoutines: Set<RoutineType> = [.hydration]
+     @State private var notificationsEnabled = false
++    @State private var alarmEnabled = false
++    @State private var isEnablingPermissions = false
++    @State private var showLearnMore = false
++
++    @AppStorage("jomado.profile.ageRange") private var storedAgeRange = ""
++    @AppStorage("jomado.profile.gender") private var storedGender = ""
++    @AppStorage("jomado.profile.goals") private var storedGoals = ""
++    @AppStorage("jomado.profile.focusAreas") private var storedFocusAreas = ""
+ 
+     var body: some View {
+         ZStack {
+@@ -24,7 +32,8 @@ struct OnboardingFlowView: View {
+                         case 1: welcomeContent
+                         case 2: profileContent
+                         case 3: focusContent
+-                        default: permissionsContent
++                        case 4: permissionsContent
++                        default: allSetContent
+                         }
+                     }
+                     .id(step)
+@@ -37,6 +46,9 @@ struct OnboardingFlowView: View {
+         }
+         .preferredColorScheme(.light)
+         .animation(.spring(response: 0.45, dampingFraction: 0.86), value: step)
++        .sheet(isPresented: $showLearnMore) {
++            learnMoreSheet
++        }
+     }
+ 
+     private var hero: some View {
+@@ -44,7 +56,7 @@ struct OnboardingFlowView: View {
+             JomadoLandscapeBackground()
+ 
+             HStack {
+-                if step > 1 {
++                if step > 1 && step < 5 {
+                     Button {
+                         step -= 1
+                     } label: {
+@@ -60,7 +72,7 @@ struct OnboardingFlowView: View {
+                 JomadoBrandWordmark()
+                 Spacer()
+ 
+-                if step > 1 {
++                if (2...4).contains(step) {
+                     VStack(alignment: .trailing, spacing: 7) {
+                         JomadoStepIndicator(current: step, total: 4)
+                         Text("Step \(step) of 4")
+@@ -73,18 +85,20 @@ struct OnboardingFlowView: View {
+             .padding(.top, 12)
+ 
+             AnimatedMomoView(
+-                expression: step == 4 ? .hopeful : .hello,
+-                cue: step == 4 ? .gentleBounce : .wave,
+-                accessibilityLabel: "Momo welcomes you to Jomado"
++                expression: step == 5 ? .celebrating : (step == 4 ? .hopeful : .hello),
++                cue: step == 5 ? .celebrate : (step == 4 ? .gentleBounce : .wave),
++                accessibilityLabel: step == 5 ? "Momo celebrates that setup is complete" : "Momo welcomes you to Jomado"
+             )
+-            .frame(width: step == 1 ? 224 : 176, height: step == 1 ? 224 : 176)
+-            .offset(x: step == 1 ? -34 : 34, y: step == 1 ? 52 : 58)
++            .frame(width: step == 1 || step == 5 ? 224 : 184, height: step == 1 || step == 5 ? 224 : 184)
++            .offset(x: step == 1 ? -34 : (step == 5 ? 0 : 30), y: step == 1 ? 52 : 54)
+ 
+-            JomadoSpeechBubble(text: heroMessage)
+-                .frame(maxWidth: 182)
+-                .offset(x: step == 1 ? 102 : -92, y: 82)
++            if step != 5 {
++                JomadoSpeechBubble(text: heroMessage)
++                    .frame(maxWidth: 190)
++                    .offset(x: step == 1 ? 102 : -92, y: 82)
++            }
+         }
+-        .frame(height: step == 1 ? 310 : 244)
++        .frame(height: step == 1 || step == 5 ? 310 : 252)
+     }
+ 
+     private var heroMessage: String {
+@@ -92,7 +106,7 @@ struct OnboardingFlowView: View {
+         case 1: "Small steps create a brighter, healthier you! 💙"
+         case 2: "Let’s tailor Jomado to you! 💙"
+         case 3: "Pick what matters most to you!"
+-        default: "A few quick permissions help me take care of you!"
++        default: "A few quick permissions help me take care of you! 💙"
+         }
+     }
+ 
+@@ -124,7 +138,7 @@ struct OnboardingFlowView: View {
+ 
+             nextButton(title: "Get Started", target: 2)
+ 
+-            Button("Learn More") {}
++            Button("Learn More") { showLearnMore = true }
+                 .font(.system(.body, design: .rounded, weight: .bold))
+                 .foregroundStyle(JomadoTheme.blue)
+                 .frame(minHeight: 44)
+@@ -139,7 +153,7 @@ struct OnboardingFlowView: View {
+ 
+             profileCard(title: "How old are you?", subtitle: "This helps us tailor your experience.") {
+                 Picker("Age range", selection: $ageRange) {
+-                    ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55+"], id: \.self) {
++                    ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55–64", "65+"], id: \.self) {
+                         Text($0).tag($0)
+                     }
+                 }
+@@ -151,17 +165,25 @@ struct OnboardingFlowView: View {
+                 .background(JomadoTheme.sky.opacity(0.52), in: RoundedRectangle(cornerRadius: 14))
+             }
+ 
+-            profileCard(title: "What’s your gender?", subtitle: "Choose the option that fits you.") {
+-                HStack(spacing: 8) {
+-                    ForEach(["Female", "Male", "Non-binary"], id: \.self) { option in
++            profileCard(title: "What’s your gender?", subtitle: "Optional — choose what fits you.") {
++                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
++                    ForEach(["Woman", "Man", "Non-binary"], id: \.self) { option in
+                         choiceButton(title: option, symbol: "person.fill", selected: gender == option) {
+                             gender = option
+                         }
+                     }
+                 }
++                HStack(spacing: 8) {
++                    choiceButton(title: "Self describe", symbol: "pencil", selected: gender == "Self describe") {
++                        gender = "Self describe"
++                    }
++                    choiceButton(title: "Prefer not to say", symbol: "hand.raised.fill", selected: gender == "Prefer not to say") {
++                        gender = "Prefer not to say"
++                    }
++                }
+             }
+ 
+-            profileCard(title: "What are your wellness goals?", subtitle: "Choose all that apply.") {
++            profileCard(title: "What are your wellness goals?", subtitle: "Choose all that apply. You can change these later.") {
+                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
+                     ForEach(goalOptions) { goal in
+                         choiceButton(
+@@ -179,7 +201,13 @@ struct OnboardingFlowView: View {
+                 }
+             }
+ 
+-            nextButton(title: "Next", target: 3)
++            Label("These details stay on your device and help personalize your experience.", systemImage: "lock.fill")
++                .font(.system(.caption, design: .rounded, weight: .semibold))
++                .foregroundStyle(JomadoTheme.secondaryText)
++                .frame(maxWidth: .infinity, alignment: .leading)
++                .padding(.horizontal, 4)
++
++            nextButton(title: "Continue", target: 3)
+         }
+     }
+ 
+@@ -229,27 +257,30 @@ struct OnboardingFlowView: View {
+                 }
+             }
+ 
+-            nextButton(title: "Next", target: 4)
++            nextButton(title: "Continue", target: 4)
+ 
+-            Button("Maybe later") { step = 4 }
+-                .font(.system(.body, design: .rounded, weight: .bold))
+-                .foregroundStyle(JomadoTheme.blue)
+-                .frame(minHeight: 44)
++            Button("Maybe later") {
++                selectedRoutines.removeAll()
++                step = 4
++            }
++            .font(.system(.body, design: .rounded, weight: .bold))
++            .foregroundStyle(JomadoTheme.blue)
++            .frame(minHeight: 44)
+         }
+     }
+ 
+     private var permissionsContent: some View {
+         VStack(spacing: 16) {
+             onboardingTitle("Let’s get Jomado", accent: "ready to help you!")
+-            Text("Enable the system surfaces that deliver reminders, show timely updates, and keep your routines within reach.")
++            Text("These permissions help Jomado send reminders, keep you on track, and show timely updates — so you never miss a chance to take care of yourself.")
+                 .onboardingSubtitle()
+ 
+             permissionRow(
+                 title: "Notifications",
+-                subtitle: "Friendly reminders and completion actions.",
++                subtitle: "Friendly reminders, motivational messages, and progress updates.",
+                 symbol: "bell.fill",
+                 color: Color(jomadoHex: "FF4D5A"),
+-                status: notificationsEnabled ? "Enabled" : "Not enabled",
++                status: notificationsEnabled ? "Allowed" : "Not enabled",
+                 enabled: notificationsEnabled
+             )
+ 
+@@ -258,13 +289,13 @@ struct OnboardingFlowView: View {
+                 subtitle: "Optional sound reminders for important routines.",
+                 symbol: "alarm.fill",
+                 color: JomadoTheme.blue,
+-                status: "Coming next",
+-                enabled: false
++                status: alarmEnabled ? "Allowed" : "Not enabled",
++                enabled: alarmEnabled
+             )
+ 
+             permissionRow(
+                 title: "Live Activities",
+-                subtitle: "Persistent status on the Lock Screen and Dynamic Island.",
++                subtitle: "Show your next reminder on the Lock Screen and Dynamic Island.",
+                 symbol: "iphone.gen3",
+                 color: Color(jomadoHex: "20C8B4"),
+                 status: model.liveActivitiesEnabled ? "Available" : "Disabled",
+@@ -272,20 +303,129 @@ struct OnboardingFlowView: View {
+             )
+ 
+             Button {
++                Task { await enablePermissionsSequentially() }
++            } label: {
++                if isEnablingPermissions {
++                    ProgressView()
++                        .tint(.white)
++                        .frame(maxWidth: .infinity)
++                } else {
++                    Label("Enable All", systemImage: "arrow.right")
++                }
++            }
++            .buttonStyle(JomadoPrimaryButtonStyle())
++            .disabled(isEnablingPermissions)
++
++            Button("Maybe Later") { step = 5 }
++                .font(.system(.body, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.blue)
++                .frame(maxWidth: .infinity, minHeight: 50)
++                .background(.white.opacity(0.76), in: Capsule())
++        }
++    }
++
++    private var allSetContent: some View {
++        VStack(spacing: 18) {
++            onboardingTitle("You’re", accent: "all set!")
++            Text("Momo is ready. Your starter routines and reminder preferences can be changed anytime.")
++                .onboardingSubtitle()
++
++            VStack(alignment: .leading, spacing: 14) {
++                Text("Readiness")
++                    .font(.system(.headline, design: .rounded, weight: .heavy))
++                    .foregroundStyle(JomadoTheme.navy)
++
++                readinessLine(title: "Notifications", enabled: notificationsEnabled)
++                readinessLine(title: "Alarms & Alerts", enabled: alarmEnabled)
++                readinessLine(title: "Live Activities", enabled: model.liveActivitiesEnabled)
++            }
++            .jomadoCard()
++
++            VStack(alignment: .leading, spacing: 12) {
++                Text("Your focus areas")
++                    .font(.system(.headline, design: .rounded, weight: .heavy))
++                    .foregroundStyle(JomadoTheme.navy)
++
++                if selectedRoutines.isEmpty {
++                    Text("No starter routines selected — you can add one anytime from Routines.")
++                        .font(.system(.subheadline, design: .rounded))
++                        .foregroundStyle(JomadoTheme.secondaryText)
++                } else {
++                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
++                        ForEach(focusRoutines.filter(selectedRoutines.contains), id: \.self) { routine in
++                            Label(routine.displayName, systemImage: routine.symbolName)
++                                .font(.system(.caption, design: .rounded, weight: .bold))
++                                .foregroundStyle(JomadoTheme.navy)
++                                .padding(.horizontal, 10)
++                                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
++                                .background(Color(jomadoHex: routine.accentHex).opacity(0.1), in: RoundedRectangle(cornerRadius: 13))
++                        }
++                    }
++                }
++            }
++            .jomadoCard()
++
++            Button {
++                persistSelections()
+                 Task {
+-                    notificationsEnabled = await model.requestNotificationAuthorization()
++                    await model.createStarterRoutines(for: selectedRoutines)
+                     onFinish()
+                 }
+             } label: {
+-                Label("Enable All", systemImage: "arrow.right")
++                Label("Start My Journey", systemImage: "arrow.right")
+             }
+             .buttonStyle(JomadoPrimaryButtonStyle())
++        }
++    }
+ 
+-            Button("Maybe later", action: onFinish)
+-                .font(.system(.body, design: .rounded, weight: .bold))
+-                .foregroundStyle(JomadoTheme.blue)
+-                .frame(minHeight: 44)
++    private var learnMoreSheet: some View {
++        NavigationStack {
++            ScrollView {
++                VStack(spacing: 18) {
++                    AnimatedMomoView(
++                        expression: .hello,
++                        cue: .wave,
++                        accessibilityLabel: "Momo introduces Jomado"
++                    )
++                    .frame(width: 160, height: 160)
++
++                    Text("A companion for small daily habits")
++                        .font(.system(.title2, design: .rounded, weight: .heavy))
++                        .foregroundStyle(JomadoTheme.navy)
++                        .multilineTextAlignment(.center)
++
++                    walkthroughRow("Friendly reminders", "Messages adapt to your routine, personality, and urgency.", "message.fill")
++                    walkthroughRow("Clear outcomes", "Complete, remind later, or skip — dismissing never pretends you completed a habit.", "checkmark.circle.fill")
++                    walkthroughRow("Works with iOS", "Notifications, alarms, and Live Activities are used only when the system allows them.", "iphone")
++                }
++                .padding(24)
++            }
++            .jomadoPageBackground()
++            .navigationTitle("About Jomado")
++            .navigationBarTitleDisplayMode(.inline)
++            .toolbar {
++                ToolbarItem(placement: .topBarTrailing) {
++                    Button("Done") { showLearnMore = false }
++                }
++            }
+         }
++        .presentationDetents([.medium, .large])
++    }
++
++    private func walkthroughRow(_ title: String, _ body: String, _ symbol: String) -> some View {
++        HStack(alignment: .top, spacing: 14) {
++            JomadoIconBadge(symbol: symbol, color: JomadoTheme.cyan, size: 48)
++            VStack(alignment: .leading, spacing: 4) {
++                Text(title)
++                    .font(.system(.headline, design: .rounded, weight: .heavy))
++                    .foregroundStyle(JomadoTheme.navy)
++                Text(body)
++                    .font(.system(.subheadline, design: .rounded))
++                    .foregroundStyle(JomadoTheme.secondaryText)
++            }
++            Spacer(minLength: 0)
++        }
++        .jomadoCard()
+     }
+ 
+     private func onboardingTitle(_ first: String, accent: String) -> some View {
+@@ -391,6 +531,38 @@ struct OnboardingFlowView: View {
+         .jomadoCard()
+     }
+ 
++    private func readinessLine(title: String, enabled: Bool) -> some View {
++        HStack {
++            Image(systemName: enabled ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
++                .foregroundStyle(enabled ? JomadoTheme.success : Color(jomadoHex: "FFB020"))
++            Text(title)
++                .font(.system(.subheadline, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.navy)
++            Spacer()
++            Text(enabled ? "Ready" : "Can enable later")
++                .font(.system(.caption, design: .rounded, weight: .semibold))
++                .foregroundStyle(JomadoTheme.secondaryText)
++        }
++    }
++
++    private func enablePermissionsSequentially() async {
++        guard !isEnablingPermissions else { return }
++        isEnablingPermissions = true
++        notificationsEnabled = await model.requestNotificationAuthorization()
++        if !selectedRoutines.isEmpty {
++            alarmEnabled = await model.requestAlarmAuthorization()
++        }
++        isEnablingPermissions = false
++        step = 5
++    }
++
++    private func persistSelections() {
++        storedAgeRange = ageRange
++        storedGender = gender
++        storedGoals = selectedGoals.sorted().joined(separator: "|")
++        storedFocusAreas = selectedRoutines.map(\.rawValue).sorted().joined(separator: "|")
++    }
++
+     private func focusSubtitle(for routine: RoutineType) -> String {
+         switch routine {
+         case .hydration: "Drink more water"
+@@ -422,7 +594,7 @@ struct OnboardingFlowView: View {
+     }
+ 
+     private var focusRoutines: [RoutineType] {
+-        [.hydration, .exercise, .stretching, .eyeCare, .breathing, .meditation, .posture, .yoga, .sleep, .custom]
++        [.hydration, .exercise, .stretching, .eyeCare, .posture, .breathing, .meditation, .yoga, .sleep, .custom]
+     }
+ 
+     private var goalOptions: [OnboardingChoice] {
+@@ -432,7 +604,9 @@ struct OnboardingFlowView: View {
+             OnboardingChoice(title: "Reduce screen strain", symbol: "laptopcomputer"),
+             OnboardingChoice(title: "Improve focus", symbol: "brain.head.profile"),
+             OnboardingChoice(title: "Manage stress", symbol: "leaf.fill"),
+-            OnboardingChoice(title: "Build routine", symbol: "chart.bar.fill")
++            OnboardingChoice(title: "Build consistency", symbol: "chart.bar.fill"),
++            OnboardingChoice(title: "Improve sleep", symbol: "moon.stars.fill"),
++            OnboardingChoice(title: "Improve mobility", symbol: "figure.flexibility")
+         ]
+     }
+ }
+diff --git a/Jomado/Features/Routines/AddRoutineFlowView.swift b/Jomado/Features/Routines/AddRoutineFlowView.swift
+index f8c4cb3..94916f7 100644
+--- a/Jomado/Features/Routines/AddRoutineFlowView.swift
++++ b/Jomado/Features/Routines/AddRoutineFlowView.swift
+@@ -2,27 +2,89 @@ import SwiftUI
+ 
+ struct AddRoutineFlowView: View {
+     let onSave: (RoutineDraft) -> Void
++    private let isEditing: Bool
+ 
+     @Environment(\.dismiss) private var dismiss
+     @State private var page = 0
+     @State private var selectedType: RoutineType = .hydration
++    @State private var scheduleMode: RoutineScheduleMode = .interval
+     @State private var startTime = Calendar.current.date(from: DateComponents(hour: 8)) ?? .now
+     @State private var endTime = Calendar.current.date(from: DateComponents(hour: 22)) ?? .now
+-    @State private var repeatMinutes = 60
++    @State private var repeatMinutes = 120
++    @State private var fixedTimes: [Date] = [
++        Calendar.current.date(from: DateComponents(hour: 8)) ?? .now
++    ]
+     @State private var selectedDays: Set<Weekday> = Set(Weekday.allCases)
+     @State private var usesAlarm = true
++    @State private var routineName = RoutineType.hydration.displayName
++    @State private var completionLabel = RoutineType.hydration.defaultCompletionLabel
++    @State private var selectedSymbol = RoutineType.hydration.symbolName
++    @State private var selectedAccent = RoutineType.hydration.accentHex
+     @State private var personality: ReminderPersonality = .playful
+     @State private var intensity: ReminderIntensity = .balanced
++    @State private var smartSnoozeEnabled = true
++    @State private var snoozeMinutes = 10
++    @State private var maxSnoozes = 3
++    @State private var goal = ""
++    @State private var contentTipEnabled = true
+     @State private var validationMessage: String?
++
+     @AppStorage("jomado.defaultPersonality") private var defaultPersonalityRaw = ReminderPersonality.playful.rawValue
+     @AppStorage("jomado.defaultIntensity") private var defaultIntensityRaw = ReminderIntensity.balanced.rawValue
+ 
++    init(
++        initialRoutine: RoutineInstance? = nil,
++        onSave: @escaping (RoutineDraft) -> Void
++    ) {
++        self.onSave = onSave
++        isEditing = initialRoutine != nil
++
++        guard let routine = initialRoutine else { return }
++
++        func date(for time: LocalTime) -> Date {
++            Calendar.current.date(
++                from: DateComponents(hour: time.hour, minute: time.minute)
++            ) ?? .now
++        }
++
++        _page = State(initialValue: 1)
++        _selectedType = State(initialValue: routine.type)
++        _usesAlarm = State(initialValue: routine.deliveryMode == .alarmAndCompanion)
++        _routineName = State(initialValue: routine.name)
++        _completionLabel = State(initialValue: routine.completionLabel)
++        _selectedSymbol = State(initialValue: routine.symbolName)
++        _selectedAccent = State(initialValue: routine.accentHex)
++        _personality = State(initialValue: routine.personality)
++        _intensity = State(initialValue: routine.intensity)
++        _smartSnoozeEnabled = State(initialValue: routine.smartSnoozeEnabled)
++        _snoozeMinutes = State(initialValue: routine.snoozeMinutes)
++        _maxSnoozes = State(initialValue: routine.maxSnoozes)
++        _goal = State(initialValue: routine.goal ?? "")
++        _contentTipEnabled = State(initialValue: routine.contentTipEnabled)
++
++        switch routine.schedule {
++        case .interval(let start, let end, let everyMinutes, let weekdays):
++            _scheduleMode = State(initialValue: .interval)
++            _startTime = State(initialValue: date(for: start))
++            _endTime = State(initialValue: date(for: end))
++            _repeatMinutes = State(initialValue: everyMinutes)
++            _selectedDays = State(initialValue: weekdays)
++        case .fixed(let times, let weekdays):
++            _scheduleMode = State(initialValue: .fixedTimes)
++            _fixedTimes = State(initialValue: times.sorted().map(date(for:)))
++            _selectedDays = State(initialValue: weekdays)
++        }
++    }
++
+     var body: some View {
+         NavigationStack {
+             ScrollView {
+                 VStack(spacing: 0) {
+                     hero
+-                    if page == 0 { chooseRoutine } else { scheduleRoutine }
++                    currentPage
++                        .padding(.horizontal, 20)
++                        .padding(.top, 18)
++                        .padding(.bottom, 34)
+                 }
+             }
+             .jomadoPageBackground()
+@@ -30,17 +92,34 @@ struct AddRoutineFlowView: View {
+         }
+         .preferredColorScheme(.light)
+         .onAppear {
++            guard !isEditing else { return }
+             personality = ReminderPersonality(rawValue: defaultPersonalityRaw) ?? .playful
+             intensity = ReminderIntensity(rawValue: defaultIntensityRaw) ?? .balanced
++            applyDefaults(for: selectedType)
++        }
++        .onChange(of: selectedType) { _, newType in
++            applyDefaults(for: newType)
++        }
++        .animation(.spring(response: 0.42, dampingFraction: 0.88), value: page)
++    }
++
++    @ViewBuilder
++    private var currentPage: some View {
++        switch page {
++        case 0: chooseRoutine
++        case 1: scheduleRoutine
++        case 2: customizeRoutine
++        default: reviewRoutine
+         }
+     }
+ 
+     private var hero: some View {
+         ZStack(alignment: .top) {
+             JomadoLandscapeBackground()
++
+             HStack {
+                 Button {
+-                    if page == 0 { dismiss() } else { page = 0 }
++                    goBack()
+                 } label: {
+                     Image(systemName: "chevron.left")
+                         .font(.system(size: 17, weight: .heavy))
+@@ -48,11 +127,14 @@ struct AddRoutineFlowView: View {
+                         .background(.white.opacity(0.9), in: Circle())
+                 }
+                 .foregroundStyle(JomadoTheme.navy)
++                .accessibilityLabel(page == 0 ? "Close" : "Previous step")
++
+                 JomadoBrandWordmark()
+                 Spacer()
++
+                 VStack(alignment: .trailing, spacing: 7) {
+-                    JomadoStepIndicator(current: page + 1, total: 2)
+-                    Text(page == 0 ? "Step 1 of 2" : "Step 2 of 2")
++                    JomadoStepIndicator(current: page + 1, total: 4)
++                    Text("Step \(page + 1) of 4")
+                         .font(.system(.caption, design: .rounded, weight: .semibold))
+                         .foregroundStyle(JomadoTheme.navy)
+                 }
+@@ -61,131 +143,237 @@ struct AddRoutineFlowView: View {
+             .padding(.top, 12)
+ 
+             AnimatedMomoView(
+-                expression: page == 0 ? .hello : .cheeky,
+-                cue: page == 0 ? .wave : .gentleBounce,
++                expression: heroExpression,
++                cue: page == 3 ? .celebrate : (page == 0 ? .wave : .gentleBounce),
+                 accessibilityLabel: "Momo helps create a routine"
+             )
+-            .frame(width: 176, height: 176)
+-            .offset(x: -52, y: 62)
++            .frame(width: 184, height: 184)
++            .offset(x: -52, y: 60)
++
++            JomadoSpeechBubble(text: heroMessage)
++                .frame(maxWidth: 188)
++                .offset(x: 96, y: 86)
++        }
++        .frame(height: 278)
++    }
+ 
+-            JomadoSpeechBubble(text: page == 0 ? "Small habits make a big, happier you!" : "Almost there—let’s set the details.")
+-                .frame(maxWidth: 178)
+-                .offset(x: 94, y: 84)
++    private var heroExpression: MascotExpression {
++        switch page {
++        case 0: .hello
++        case 1: .cheeky
++        case 2: .focused
++        default: .celebrating
++        }
++    }
++
++    private var heroMessage: String {
++        switch page {
++        case 0: "Small habits make a big, happier you! 💙"
++        case 1: "Let’s choose when I should show up."
++        case 2: "Make this routine feel like yours!"
++        default: "Almost there — everything look right?"
+         }
+-        .frame(height: 266)
+     }
+ 
+     private var chooseRoutine: some View {
+         VStack(alignment: .leading, spacing: 18) {
+-            VStack(alignment: .leading, spacing: 5) {
+-                Text("Add Routine")
+-                    .font(.system(size: 36, weight: .heavy, design: .rounded))
+-                    .foregroundStyle(JomadoTheme.navy)
+-                Text("What habit would you like to build?")
+-                    .font(.system(.title3, design: .rounded, weight: .medium))
+-                    .foregroundStyle(JomadoTheme.secondaryText)
+-            }
++            pageHeading(
++                title: isEditing ? "Change routine type" : "Add Routine",
++                subtitle: "What habit would you like to build?"
++            )
+ 
+-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
++            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 12) {
+                 ForEach(availableTypes, id: \.self) { type in
+                     Button { selectedType = type } label: {
+                         VStack(spacing: 8) {
+-                            JomadoIconBadge(symbol: type.symbolName, color: Color(jomadoHex: type.accentHex), size: 62)
++                            JomadoIconBadge(
++                                symbol: type.symbolName,
++                                color: Color(jomadoHex: type.accentHex),
++                                size: 66
++                            )
+                             Text(type.displayName)
+                                 .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                                 .foregroundStyle(JomadoTheme.navy)
++                                .lineLimit(1)
+                             Text(shortDescription(for: type))
+                                 .font(.system(.caption2, design: .rounded))
+                                 .foregroundStyle(JomadoTheme.secondaryText)
+-                                .lineLimit(1)
++                                .multilineTextAlignment(.center)
++                                .lineLimit(2)
+                         }
+-                        .padding(10)
+-                        .frame(maxWidth: .infinity, minHeight: 132)
+-                        .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
++                        .padding(.horizontal, 7)
++                        .padding(.vertical, 12)
++                        .frame(maxWidth: .infinity, minHeight: 134)
++                        .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                         .overlay {
+-                            RoundedRectangle(cornerRadius: 21, style: .continuous)
+-                                .stroke(selectedType == type ? JomadoTheme.cyan : .clear, lineWidth: 1.8)
++                            RoundedRectangle(cornerRadius: 22, style: .continuous)
++                                .stroke(selectedType == type ? JomadoTheme.cyan : Color.clear, lineWidth: 1.8)
+                         }
++                        .shadow(color: JomadoTheme.navy.opacity(0.05), radius: 10, y: 5)
+                     }
+                     .buttonStyle(.plain)
++                    .accessibilityLabel("\(type.displayName), \(shortDescription(for: type))")
++                    .accessibilityAddTraits(selectedType == type ? .isSelected : [])
+                 }
+             }
+ 
+-            Button {
+-                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { page = 1 }
+-            } label: {
+-                Label("Next", systemImage: "arrow.right")
++            primaryNextButton(title: "Next") {
++                validationMessage = nil
++                page = 1
+             }
+-            .buttonStyle(JomadoPrimaryButtonStyle())
+         }
+-        .padding(20)
+     }
+ 
+     private var scheduleRoutine: some View {
+         VStack(alignment: .leading, spacing: 16) {
+-            VStack(alignment: .leading, spacing: 4) {
+-                Text("Add Routine")
+-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+-                    .foregroundStyle(JomadoTheme.navy)
+-                Text("Set your schedule and review before saving.")
+-                    .font(.system(.body, design: .rounded, weight: .medium))
+-                    .foregroundStyle(JomadoTheme.secondaryText)
++            pageHeading(
++                title: "Set your schedule",
++                subtitle: "Choose when and how often Momo should remind you."
++            )
++
++            scheduleModeCard
++
++            if scheduleMode == .interval {
++                intervalScheduleCard
++            } else {
++                fixedTimesCard
+             }
+-            scheduleCard
++
++            daysCard
+             reminderStyleCard
+-            personalityCard
+-            deliveryCard
+-            previewCard
+-            if let validationMessage {
+-                Text(validationMessage)
+-                    .font(.system(.caption, design: .rounded, weight: .semibold))
+-                    .foregroundStyle(Color(jomadoHex: "FF4D5A"))
++
++            validationText
++
++            primaryNextButton(title: "Next") {
++                guard validateSchedule() else { return }
++                page = 2
+             }
+-            Button {
+-                saveRoutine()
+-            } label: {
+-                Label("Save Routine", systemImage: "arrow.right")
++        }
++    }
++
++    private var scheduleModeCard: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            sectionHeader("Schedule type", subtitle: "Pick the pattern that matches this habit.")
++            Picker("Schedule type", selection: $scheduleMode) {
++                ForEach(RoutineScheduleMode.allCases) { mode in
++                    Text(mode.title).tag(mode)
++                }
+             }
+-            .buttonStyle(JomadoPrimaryButtonStyle())
++            .pickerStyle(.segmented)
+         }
+-        .padding(20)
++        .jomadoCard()
+     }
+ 
+-    private var scheduleCard: some View {
++    private var intervalScheduleCard: some View {
+         VStack(alignment: .leading, spacing: 14) {
+-            Text("Schedule")
+-                .font(.system(.title3, design: .rounded, weight: .heavy))
+-                .foregroundStyle(JomadoTheme.navy)
+-            scheduleTimeRow(title: "Start time", symbol: "clock.fill", selection: $startTime)
++            sectionHeader("Window + interval", subtitle: "Repeat inside a daily time window.")
++            scheduleTimeRow(title: "Start time", subtitle: "When reminders begin", symbol: "clock.fill", selection: $startTime)
+             Divider()
+-            scheduleTimeRow(title: "End time", symbol: "moon.fill", selection: $endTime)
++            scheduleTimeRow(title: "End time", subtitle: "When reminders stop", symbol: "moon.fill", selection: $endTime)
+             Divider()
+-            HStack {
+-                JomadoIconBadge(symbol: "arrow.triangle.2.circlepath", color: JomadoTheme.cyan, size: 42)
+-                Text("Repeat")
+-                    .font(.system(.headline, design: .rounded, weight: .bold))
+-                    .foregroundStyle(JomadoTheme.navy)
++            HStack(spacing: 12) {
++                JomadoIconBadge(symbol: "arrow.triangle.2.circlepath", color: JomadoTheme.cyan, size: 46)
++                VStack(alignment: .leading, spacing: 2) {
++                    Text("Repeat")
++                        .font(.system(.headline, design: .rounded, weight: .bold))
++                        .foregroundStyle(JomadoTheme.navy)
++                    Text("How often to remind you")
++                        .font(.system(.caption, design: .rounded))
++                        .foregroundStyle(JomadoTheme.secondaryText)
++                }
+                 Spacer()
+                 Picker("Repeat", selection: $repeatMinutes) {
+-                    ForEach([20, 30, 60, 90, 120, 180, 240], id: \.self) { minutes in
++                    ForEach([20, 30, 45, 60, 90, 120, 180, 240], id: \.self) { minutes in
+                         Text(repeatLabel(minutes)).tag(minutes)
+                     }
+                 }
+                 .pickerStyle(.menu)
+                 .tint(JomadoTheme.navy)
+             }
+-            Text("Days")
+-                .font(.system(.headline, design: .rounded, weight: .heavy))
+-                .foregroundStyle(JomadoTheme.navy)
++
++            if LocalTime(date: endTime) < LocalTime(date: startTime) {
++                Label("This window continues past midnight.", systemImage: "moon.stars.fill")
++                    .font(.system(.caption, design: .rounded, weight: .semibold))
++                    .foregroundStyle(JomadoTheme.blue)
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var fixedTimesCard: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Fixed times", subtitle: "Choose one or more exact reminder times.")
++
++            ForEach(fixedTimes.indices, id: \.self) { index in
++                HStack(spacing: 12) {
++                    JomadoIconBadge(symbol: "clock.fill", color: JomadoTheme.cyan, size: 46)
++                    VStack(alignment: .leading, spacing: 2) {
++                        Text("Time \(index + 1)")
++                            .font(.system(.headline, design: .rounded, weight: .bold))
++                            .foregroundStyle(JomadoTheme.navy)
++                        Text("A reminder fires at this local time")
++                            .font(.system(.caption, design: .rounded))
++                            .foregroundStyle(JomadoTheme.secondaryText)
++                    }
++                    Spacer()
++                    DatePicker(
++                        "Time \(index + 1)",
++                        selection: Binding(
++                            get: { fixedTimes[index] },
++                            set: { fixedTimes[index] = $0 }
++                        ),
++                        displayedComponents: .hourAndMinute
++                    )
++                    .labelsHidden()
++                    .tint(JomadoTheme.cyan)
++
++                    if fixedTimes.count > 1 {
++                        Button(role: .destructive) {
++                            fixedTimes.remove(at: index)
++                        } label: {
++                            Image(systemName: "minus.circle.fill")
++                        }
++                        .accessibilityLabel("Remove time \(index + 1)")
++                    }
++                }
++
++                if index < fixedTimes.count - 1 { Divider() }
++            }
++
++            if fixedTimes.count < 6 {
++                Button {
++                    let base = fixedTimes.last ?? .now
++                    fixedTimes.append(base.addingTimeInterval(2 * 60 * 60))
++                } label: {
++                    Label("Add another time", systemImage: "plus.circle.fill")
++                        .font(.system(.subheadline, design: .rounded, weight: .bold))
++                }
++                .foregroundStyle(JomadoTheme.blue)
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var daysCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Days", subtitle: "Select which days to include.")
+             HStack(spacing: 6) {
+                 ForEach(Weekday.allCases, id: \.self) { day in
+                     Button(day.shortName) {
+-                        if selectedDays.contains(day) { selectedDays.remove(day) } else { selectedDays.insert(day) }
++                        if selectedDays.contains(day) {
++                            selectedDays.remove(day)
++                        } else {
++                            selectedDays.insert(day)
++                        }
+                     }
+                     .font(.system(.caption2, design: .rounded, weight: .bold))
+                     .foregroundStyle(selectedDays.contains(day) ? .white : JomadoTheme.secondaryText)
+-                    .frame(maxWidth: .infinity, minHeight: 42)
+-                    .background(selectedDays.contains(day) ? JomadoTheme.cyan : JomadoTheme.sky.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
++                    .frame(maxWidth: .infinity, minHeight: 44)
++                    .background(
++                        selectedDays.contains(day) ? JomadoTheme.cyan : JomadoTheme.sky.opacity(0.5),
++                        in: RoundedRectangle(cornerRadius: 12)
++                    )
++                    .accessibilityAddTraits(selectedDays.contains(day) ? .isSelected : [])
+                 }
+             }
+         }
+@@ -194,30 +382,137 @@ struct AddRoutineFlowView: View {
+ 
+     private var reminderStyleCard: some View {
+         VStack(alignment: .leading, spacing: 12) {
+-            Text("Reminder style")
+-                .font(.system(.title3, design: .rounded, weight: .heavy))
+-                .foregroundStyle(JomadoTheme.navy)
++            sectionHeader("Reminder style", subtitle: "Choose how you’d like to be reminded.")
+             HStack(spacing: 10) {
+-                styleChoice(title: "Alarm + Companion", subtitle: "Sound + Momo", symbol: "bell.fill", selected: usesAlarm) { usesAlarm = true }
+-                styleChoice(title: "Companion only", subtitle: "Momo, no alarm", symbol: "face.smiling.fill", selected: !usesAlarm) { usesAlarm = false }
++                styleChoice(
++                    title: "Alarm + Companion",
++                    subtitle: "Sound + Momo appears",
++                    symbol: "bell.fill",
++                    selected: usesAlarm
++                ) { usesAlarm = true }
++                styleChoice(
++                    title: "Companion only",
++                    subtitle: "Momo only, no alarm",
++                    symbol: "face.smiling.fill",
++                    selected: !usesAlarm
++                ) { usesAlarm = false }
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var customizeRoutine: some View {
++        VStack(alignment: .leading, spacing: 16) {
++            pageHeading(
++                title: "Make it yours",
++                subtitle: "Customize the routine, Momo’s tone, and what counts as done."
++            )
++
++            routineDetailsCard
++            appearanceCard
++            personalityCard
++            snoozeCard
++            coachingCard
++
++            validationText
++
++            primaryNextButton(title: "Review") {
++                guard validateCustomization() else { return }
++                page = 3
++            }
++        }
++    }
++
++    private var routineDetailsCard: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Routine details", subtitle: "Use labels that feel natural to you.")
++
++            labeledTextField("Routine name", text: $routineName, prompt: selectedType.displayName)
++            labeledTextField("Completion label", text: $completionLabel, prompt: selectedType.defaultCompletionLabel)
++        }
++        .jomadoCard()
++    }
++
++    private var appearanceCard: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Icon & color", subtitle: "Choose how this routine appears across Jomado.")
++
++            ScrollView(.horizontal, showsIndicators: false) {
++                HStack(spacing: 10) {
++                    ForEach(symbolOptions, id: \.self) { symbol in
++                        Button {
++                            selectedSymbol = symbol
++                        } label: {
++                            Image(systemName: symbol)
++                                .font(.system(size: 20, weight: .bold))
++                                .foregroundStyle(selectedSymbol == symbol ? .white : Color(jomadoHex: selectedAccent))
++                                .frame(width: 48, height: 48)
++                                .background(
++                                    selectedSymbol == symbol ? Color(jomadoHex: selectedAccent) : Color(jomadoHex: selectedAccent).opacity(0.1),
++                                    in: Circle()
++                                )
++                        }
++                        .buttonStyle(.plain)
++                        .accessibilityLabel("Use \(symbol) icon")
++                        .accessibilityAddTraits(selectedSymbol == symbol ? .isSelected : [])
++                    }
++                }
++            }
++
++            HStack(spacing: 12) {
++                ForEach(accentOptions, id: \.self) { hex in
++                    Button {
++                        selectedAccent = hex
++                    } label: {
++                        Circle()
++                            .fill(Color(jomadoHex: hex))
++                            .frame(width: 38, height: 38)
++                            .overlay {
++                                if selectedAccent == hex {
++                                    Image(systemName: "checkmark")
++                                        .font(.system(size: 14, weight: .heavy))
++                                        .foregroundStyle(.white)
++                                }
++                            }
++                            .overlay {
++                                Circle()
++                                    .stroke(.white, lineWidth: 3)
++                                    .padding(3)
++                                    .opacity(selectedAccent == hex ? 1 : 0)
++                            }
++                    }
++                    .buttonStyle(.plain)
++                    .accessibilityLabel("Choose routine color")
++                    .accessibilityAddTraits(selectedAccent == hex ? .isSelected : [])
++                }
+             }
+         }
+         .jomadoCard()
+     }
+ 
+     private var personalityCard: some View {
+-        VStack(alignment: .leading, spacing: 12) {
+-            Text("Companion personality")
+-                .font(.system(.title3, design: .rounded, weight: .heavy))
+-                .foregroundStyle(JomadoTheme.navy)
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Companion personality", subtitle: "Momo can sound different for each routine.")
+ 
+-            Picker("Personality", selection: $personality) {
+-                ForEach(ReminderPersonality.allCases, id: \.self) { option in
+-                    Text(option.displayName).tag(option)
++            HStack(spacing: 12) {
++                MomoArtwork(expression: personality == .dramatic ? .dramatic : (personality == .strict ? .focused : .hello))
++                    .frame(width: 70, height: 70)
++
++                VStack(alignment: .leading, spacing: 8) {
++                    Picker("Personality", selection: $personality) {
++                        ForEach(ReminderPersonality.allCases, id: \.self) { option in
++                            Text(option.displayName).tag(option)
++                        }
++                    }
++                    .pickerStyle(.menu)
++                    .tint(JomadoTheme.navy)
++
++                    Text("Mascot: Momo")
++                        .font(.system(.caption, design: .rounded, weight: .semibold))
++                        .foregroundStyle(JomadoTheme.secondaryText)
+                 }
++                Spacer()
+             }
+-            .pickerStyle(.menu)
+-            .tint(JomadoTheme.navy)
+ 
+             Picker("Intensity", selection: $intensity) {
+                 ForEach(ReminderIntensity.allCases, id: \.self) { option in
+@@ -229,44 +524,187 @@ struct AddRoutineFlowView: View {
+         .jomadoCard()
+     }
+ 
+-    private var deliveryCard: some View {
++    private var snoozeCard: some View {
+         VStack(alignment: .leading, spacing: 12) {
+-            Text("Delivery readiness")
+-                .font(.system(.title3, design: .rounded, weight: .heavy))
+-                .foregroundStyle(JomadoTheme.navy)
+-            readinessRow(title: "Notifications", symbol: "bell.fill", status: "Managed in Settings", color: JomadoTheme.cyan)
+-            if usesAlarm {
+-                readinessRow(title: "AlarmKit", symbol: "alarm.fill", status: "Requested on save", color: Color(jomadoHex: "FFB020"))
++            Toggle(isOn: $smartSnoozeEnabled) {
++                VStack(alignment: .leading, spacing: 3) {
++                    Text("Smart snooze")
++                        .font(.system(.headline, design: .rounded, weight: .heavy))
++                        .foregroundStyle(JomadoTheme.navy)
++                    Text("Allow a limited number of follow-up reminders without marking the routine done.")
++                        .font(.system(.caption, design: .rounded))
++                        .foregroundStyle(JomadoTheme.secondaryText)
++                }
++            }
++            .tint(JomadoTheme.cyan)
++
++            if smartSnoozeEnabled {
++                Divider()
++                Stepper(value: $snoozeMinutes, in: 5...30, step: 5) {
++                    settingValueRow("Snooze length", value: "\(snoozeMinutes) min")
++                }
++                Stepper(value: $maxSnoozes, in: 1...5) {
++                    settingValueRow("Maximum snoozes", value: "\(maxSnoozes)")
++                }
+             }
+-            readinessRow(title: "Live Activities", symbol: "iphone.gen3", status: "Managed by iOS", color: Color(jomadoHex: "20C8B4"))
+         }
+         .jomadoCard()
+     }
+ 
++    private var coachingCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Goal & coaching", subtitle: "Optional context helps the routine feel purposeful.")
++            labeledTextField("Goal", text: $goal, prompt: goalPrompt(for: selectedType))
++            Toggle("Show helpful tips in reminders", isOn: $contentTipEnabled)
++                .font(.system(.subheadline, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.navy)
++                .tint(JomadoTheme.cyan)
++        }
++        .jomadoCard()
++    }
++
++    private var reviewRoutine: some View {
++        VStack(alignment: .leading, spacing: 16) {
++            pageHeading(
++                title: isEditing ? "Review your changes" : "Review your routine",
++                subtitle: isEditing
++                    ? "Confirm the updated routine before Jomado refreshes its schedule."
++                    : "One last check before Jomado starts scheduling reminders."
++            )
++
++            previewCard
++            reviewScheduleCard
++            reviewCustomizationCard
++            deliveryCard
++
++            validationText
++
++            Button {
++                saveRoutine()
++            } label: {
++                Label(isEditing ? "Save Changes" : "Save Routine", systemImage: "arrow.right")
++            }
++            .buttonStyle(JomadoPrimaryButtonStyle())
++        }
++    }
++
+     private var previewCard: some View {
+         HStack(spacing: 14) {
+-            JomadoIconBadge(symbol: selectedType.symbolName, color: Color(jomadoHex: selectedType.accentHex), size: 58)
+-            VStack(alignment: .leading, spacing: 4) {
+-                Text("Daily \(selectedType.displayName)")
++            JomadoIconBadge(
++                symbol: selectedSymbol,
++                color: Color(jomadoHex: selectedAccent),
++                size: 62
++            )
++            VStack(alignment: .leading, spacing: 5) {
++                Text(routineName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selectedType.displayName : routineName)
+                     .font(.system(.headline, design: .rounded, weight: .heavy))
+                     .foregroundStyle(JomadoTheme.navy)
+-                Text("\(repeatLabel(repeatMinutes))  •  \(startTime.formatted(date: .omitted, time: .shortened))–\(endTime.formatted(date: .omitted, time: .shortened))")
++                Text(scheduleSummary)
+                     .font(.system(.caption, design: .rounded))
+                     .foregroundStyle(JomadoTheme.secondaryText)
++                    .lineLimit(2)
++                Text(daySummary)
++                    .font(.system(.caption2, design: .rounded, weight: .bold))
++                    .foregroundStyle(JomadoTheme.blue)
+             }
+             Spacer()
+-            Image(systemName: "chevron.right")
+-                .foregroundStyle(JomadoTheme.secondaryText)
++            Image(systemName: "checkmark.circle.fill")
++                .font(.system(size: 24))
++                .foregroundStyle(JomadoTheme.success)
+         }
+         .jomadoCard()
+     }
+ 
+-    private func scheduleTimeRow(title: String, symbol: String, selection: Binding<Date>) -> some View {
+-        HStack {
+-            JomadoIconBadge(symbol: symbol, color: JomadoTheme.cyan, size: 42)
++    private var reviewScheduleCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Schedule", subtitle: "When Jomado will create occurrences.")
++            reviewLine(symbol: scheduleMode == .interval ? "arrow.triangle.2.circlepath" : "clock.fill", title: scheduleMode.title, value: scheduleSummary)
++            reviewLine(symbol: "calendar", title: "Days", value: daySummary)
++            reviewLine(symbol: usesAlarm ? "alarm.fill" : "face.smiling.fill", title: "Delivery", value: usesAlarm ? "Alarm + Companion" : "Companion only")
++        }
++        .jomadoCard()
++    }
++
++    private var reviewCustomizationCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Companion & completion", subtitle: "How this routine behaves.")
++            reviewLine(symbol: "face.smiling.fill", title: "Personality", value: "\(personality.displayName) • \(intensity.displayName)")
++            reviewLine(symbol: "checkmark.circle.fill", title: "Complete with", value: completionLabel)
++            reviewLine(
++                symbol: "clock.arrow.circlepath",
++                title: "Smart snooze",
++                value: smartSnoozeEnabled ? "\(snoozeMinutes) min • up to \(maxSnoozes)" : "Off"
++            )
++            if !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
++                reviewLine(symbol: "target", title: "Goal", value: goal)
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var deliveryCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Delivery readiness", subtitle: "Permissions can be changed later without losing the routine.")
++            readinessRow(title: "Notifications", symbol: "bell.fill", status: "Managed by iOS", color: JomadoTheme.cyan)
++            if usesAlarm {
++                readinessRow(title: "Alarm access", symbol: "alarm.fill", status: "Requested if needed", color: Color(jomadoHex: "FFB020"))
++            }
++            readinessRow(title: "Live Activities", symbol: "iphone.gen3", status: "Used when available", color: Color(jomadoHex: "20C8B4"))
++        }
++        .jomadoCard()
++    }
++
++    @ViewBuilder
++    private var validationText: some View {
++        if let validationMessage {
++            Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
++                .font(.system(.caption, design: .rounded, weight: .semibold))
++                .foregroundStyle(Color(jomadoHex: "D65C00"))
++                .padding(.horizontal, 4)
++        }
++    }
++
++    private func pageHeading(title: String, subtitle: String) -> some View {
++        VStack(alignment: .leading, spacing: 5) {
++            Text(title)
++                .font(.system(size: 36, weight: .heavy, design: .rounded))
++                .foregroundStyle(JomadoTheme.navy)
++            Text(subtitle)
++                .font(.system(.title3, design: .rounded, weight: .medium))
++                .foregroundStyle(JomadoTheme.secondaryText)
++        }
++        .frame(maxWidth: .infinity, alignment: .leading)
++    }
++
++    private func sectionHeader(_ title: String, subtitle: String) -> some View {
++        HStack(alignment: .firstTextBaseline) {
+             Text(title)
+-                .font(.system(.headline, design: .rounded, weight: .bold))
++                .font(.system(.title3, design: .rounded, weight: .heavy))
+                 .foregroundStyle(JomadoTheme.navy)
++            Spacer(minLength: 10)
++            Text(subtitle)
++                .font(.system(.caption, design: .rounded))
++                .foregroundStyle(JomadoTheme.secondaryText)
++                .multilineTextAlignment(.trailing)
++        }
++    }
++
++    private func scheduleTimeRow(
++        title: String,
++        subtitle: String,
++        symbol: String,
++        selection: Binding<Date>
++    ) -> some View {
++        HStack(spacing: 12) {
++            JomadoIconBadge(symbol: symbol, color: JomadoTheme.cyan, size: 46)
++            VStack(alignment: .leading, spacing: 2) {
++                Text(title)
++                    .font(.system(.headline, design: .rounded, weight: .bold))
++                    .foregroundStyle(JomadoTheme.navy)
++                Text(subtitle)
++                    .font(.system(.caption, design: .rounded))
++                    .foregroundStyle(JomadoTheme.secondaryText)
++            }
+             Spacer()
+             DatePicker(title, selection: selection, displayedComponents: .hourAndMinute)
+                 .labelsHidden()
+@@ -274,13 +712,24 @@ struct AddRoutineFlowView: View {
+         }
+     }
+ 
+-    private func styleChoice(title: String, subtitle: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
++    private func styleChoice(
++        title: String,
++        subtitle: String,
++        symbol: String,
++        selected: Bool,
++        action: @escaping () -> Void
++    ) -> some View {
+         Button(action: action) {
+             HStack(spacing: 8) {
+-                Image(systemName: symbol).foregroundStyle(JomadoTheme.cyan)
++                Image(systemName: symbol)
++                    .foregroundStyle(JomadoTheme.cyan)
+                 VStack(alignment: .leading, spacing: 2) {
+-                    Text(title).font(.system(.caption, design: .rounded, weight: .heavy))
+-                    Text(subtitle).font(.system(.caption2, design: .rounded)).foregroundStyle(JomadoTheme.secondaryText)
++                    Text(title)
++                        .font(.system(.caption, design: .rounded, weight: .heavy))
++                    Text(subtitle)
++                        .font(.system(.caption2, design: .rounded))
++                        .foregroundStyle(JomadoTheme.secondaryText)
++                        .lineLimit(2)
+                 }
+                 Spacer(minLength: 0)
+                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+@@ -288,7 +737,7 @@ struct AddRoutineFlowView: View {
+             }
+             .foregroundStyle(JomadoTheme.navy)
+             .padding(10)
+-            .frame(maxWidth: .infinity, minHeight: 68)
++            .frame(maxWidth: .infinity, minHeight: 74)
+             .background(selected ? JomadoTheme.sky.opacity(0.7) : .white, in: RoundedRectangle(cornerRadius: 16))
+             .overlay {
+                 RoundedRectangle(cornerRadius: 16)
+@@ -298,6 +747,47 @@ struct AddRoutineFlowView: View {
+         .buttonStyle(.plain)
+     }
+ 
++    private func labeledTextField(_ label: String, text: Binding<String>, prompt: String) -> some View {
++        VStack(alignment: .leading, spacing: 6) {
++            Text(label)
++                .font(.system(.caption, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.secondaryText)
++            TextField(prompt, text: text)
++                .font(.system(.body, design: .rounded, weight: .semibold))
++                .foregroundStyle(JomadoTheme.navy)
++                .padding(.horizontal, 14)
++                .frame(minHeight: 50)
++                .background(JomadoTheme.sky.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
++        }
++    }
++
++    private func settingValueRow(_ title: String, value: String) -> some View {
++        HStack {
++            Text(title)
++                .font(.system(.subheadline, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.navy)
++            Spacer()
++            Text(value)
++                .font(.system(.subheadline, design: .rounded, weight: .heavy))
++                .foregroundStyle(JomadoTheme.blue)
++        }
++    }
++
++    private func reviewLine(symbol: String, title: String, value: String) -> some View {
++        HStack(alignment: .top, spacing: 12) {
++            JomadoIconBadge(symbol: symbol, color: JomadoTheme.cyan, size: 42)
++            VStack(alignment: .leading, spacing: 2) {
++                Text(title)
++                    .font(.system(.caption, design: .rounded, weight: .bold))
++                    .foregroundStyle(JomadoTheme.secondaryText)
++                Text(value)
++                    .font(.system(.subheadline, design: .rounded, weight: .bold))
++                    .foregroundStyle(JomadoTheme.navy)
++            }
++            Spacer(minLength: 0)
++        }
++    }
++
+     private func readinessRow(title: String, symbol: String, status: String, color: Color) -> some View {
+         HStack {
+             JomadoIconBadge(symbol: symbol, color: color, size: 42)
+@@ -308,47 +798,177 @@ struct AddRoutineFlowView: View {
+             Text(status)
+                 .font(.system(.caption2, design: .rounded, weight: .bold))
+                 .foregroundStyle(color)
+-                .padding(.horizontal, 10)
+-                .padding(.vertical, 6)
+-                .background(color.opacity(0.12), in: Capsule())
++                .multilineTextAlignment(.trailing)
+         }
+     }
+ 
+-    private func saveRoutine() {
+-        let calendar = Calendar.current
+-        let start = LocalTime(date: startTime, calendar: calendar)
+-        let end = LocalTime(date: endTime, calendar: calendar)
++    private func primaryNextButton(title: String, action: @escaping () -> Void) -> some View {
++        Button(action: action) {
++            Label(title, systemImage: "arrow.right")
++        }
++        .buttonStyle(JomadoPrimaryButtonStyle())
++        .padding(.top, 2)
++    }
+ 
+-        guard start < end else {
+-            validationMessage = "End time must be later than start time."
+-            return
++    private func goBack() {
++        validationMessage = nil
++        if page == 0 {
++            dismiss()
++        } else {
++            page -= 1
+         }
++    }
++
++    private func validateSchedule() -> Bool {
+         guard !selectedDays.isEmpty else {
+             validationMessage = "Choose at least one day."
+-            return
++            return false
+         }
+ 
+-        let draft = RoutineDraft(
+-            type: selectedType,
+-            name: selectedType.displayName,
+-            schedule: .interval(
+-                start: start,
+-                end: end,
++        if scheduleMode == .interval {
++            let start = LocalTime(date: startTime)
++            let end = LocalTime(date: endTime)
++            guard start != end else {
++                validationMessage = "Choose different start and end times."
++                return false
++            }
++            guard repeatMinutes > 0 else {
++                validationMessage = "Choose a valid repeat interval."
++                return false
++            }
++        } else {
++            guard !fixedTimes.isEmpty else {
++                validationMessage = "Add at least one reminder time."
++                return false
++            }
++        }
++
++        validationMessage = nil
++        return true
++    }
++
++    private func validateCustomization() -> Bool {
++        guard !routineName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
++            validationMessage = "Give this routine a name."
++            return false
++        }
++        guard !completionLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
++            validationMessage = "Add a completion label so the action is explicit."
++            return false
++        }
++        validationMessage = nil
++        return true
++    }
++
++    private func saveRoutine() {
++        guard validateSchedule(), validateCustomization() else { return }
++
++        let calendar = Calendar.current
++        let schedule: RoutineSchedule
++        if scheduleMode == .interval {
++            schedule = .interval(
++                start: LocalTime(date: startTime, calendar: calendar),
++                end: LocalTime(date: endTime, calendar: calendar),
+                 everyMinutes: repeatMinutes,
+                 weekdays: selectedDays
+-            ),
++            )
++        } else {
++            let times = Array(Set(fixedTimes.map { LocalTime(date: $0, calendar: calendar) })).sorted()
++            schedule = .fixed(times: times, weekdays: selectedDays)
++        }
++
++        let draft = RoutineDraft(
++            type: selectedType,
++            name: routineName.trimmingCharacters(in: .whitespacesAndNewlines),
++            schedule: schedule,
+             deliveryMode: usesAlarm ? .alarmAndCompanion : .companionOnly,
+             personality: personality,
+             intensity: intensity,
+-            smartSnoozeEnabled: true,
+-            snoozeMinutes: 10,
+-            maxSnoozes: 3
++            smartSnoozeEnabled: smartSnoozeEnabled,
++            snoozeMinutes: snoozeMinutes,
++            maxSnoozes: maxSnoozes,
++            symbolName: selectedSymbol,
++            accentHex: selectedAccent,
++            completionLabel: completionLabel.trimmingCharacters(in: .whitespacesAndNewlines),
++            mascotID: "momo",
++            goal: goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : goal.trimmingCharacters(in: .whitespacesAndNewlines),
++            contentTipEnabled: contentTipEnabled
+         )
++
+         validationMessage = nil
+         onSave(draft)
+         dismiss()
+     }
+ 
++    private func applyDefaults(for type: RoutineType) {
++        routineName = type == .custom ? "My Routine" : type.displayName
++        completionLabel = type.defaultCompletionLabel
++        selectedSymbol = type.symbolName
++        selectedAccent = type.accentHex
++        goal = ""
++
++        switch type {
++        case .hydration:
++            scheduleMode = .interval
++            repeatMinutes = 120
++            startTime = date(hour: 8)
++            endTime = date(hour: 22)
++        case .eyeCare:
++            scheduleMode = .interval
++            repeatMinutes = 60
++            startTime = date(hour: 9)
++            endTime = date(hour: 18)
++        case .posture:
++            scheduleMode = .interval
++            repeatMinutes = 90
++            startTime = date(hour: 9)
++            endTime = date(hour: 18)
++        case .exercise:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 18)]
++        case .stretching:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 8), date(hour: 20)]
++        case .breathing:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 12)]
++        case .meditation:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 7)]
++        case .yoga:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 7, minute: 30)]
++        case .sleep:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 22, minute: 30)]
++        case .custom, .generic:
++            scheduleMode = .fixedTimes
++            fixedTimes = [date(hour: 9)]
++        }
++    }
++
++    private func date(hour: Int, minute: Int = 0) -> Date {
++        Calendar.current.date(from: DateComponents(hour: hour, minute: minute)) ?? .now
++    }
++
++    private var scheduleSummary: String {
++        switch scheduleMode {
++        case .interval:
++            return "\(repeatLabel(repeatMinutes)) • \(startTime.formatted(date: .omitted, time: .shortened))–\(endTime.formatted(date: .omitted, time: .shortened))"
++        case .fixedTimes:
++            return fixedTimes
++                .map { $0.formatted(date: .omitted, time: .shortened) }
++                .joined(separator: ", ")
++        }
++    }
++
++    private var daySummary: String {
++        if selectedDays.count == Weekday.allCases.count { return "Every day" }
++        let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
++        if selectedDays == weekdays { return "Weekdays" }
++        return Weekday.allCases.filter(selectedDays.contains).map(\.shortName).joined(separator: ", ")
++    }
++
+     private func repeatLabel(_ minutes: Int) -> String {
+         if minutes < 60 { return "Every \(minutes) min" }
+         if minutes % 60 == 0 {
+@@ -365,22 +985,63 @@ struct AddRoutineFlowView: View {
+         case .hydration: "Drink more water"
+         case .exercise: "Move your body"
+         case .stretching: "Feel looser"
+-        case .eyeCare: "Rest your eyes"
+-        case .posture: "Stand taller"
++        case .eyeCare: "Give your eyes a break"
++        case .posture: "Sit and stand better"
+         case .breathing: "Feel calmer"
+-        case .meditation: "Be mindful"
++        case .meditation: "Be more mindful"
+         case .yoga: "Build balance"
+         case .sleep: "Rest better"
+-        case .custom: "Your own routine"
++        case .custom: "Create your own routine"
+         case .generic: "Build a habit"
+         }
+     }
+ 
++    private func goalPrompt(for type: RoutineType) -> String {
++        switch type {
++        case .hydration: "Example: Drink water more consistently"
++        case .exercise: "Example: Move for 30 minutes"
++        case .stretching: "Example: Reduce stiffness"
++        case .eyeCare: "Example: Take regular screen breaks"
++        case .posture: "Example: Reset posture during work"
++        case .breathing: "Example: Pause and reset"
++        case .meditation: "Example: Build a daily mindfulness habit"
++        case .yoga: "Example: Improve mobility and balance"
++        case .sleep: "Example: Start winding down on time"
++        case .custom, .generic: "What do you want this routine to help with?"
++        }
++    }
++
++    private var symbolOptions: [String] {
++        Array(Set([selectedType.symbolName, "star.fill", "heart.fill", "bolt.fill", "leaf.fill", "sparkles"]))
++            .sorted()
++    }
++
++    private var accentOptions: [String] {
++        [selectedType.accentHex, "13BDEB", "23C987", "7C5CFC", "FF8A2B", "FF6B6B", "8F68E8"]
++            .reduce(into: [String]()) { result, value in
++                if !result.contains(value) { result.append(value) }
++            }
++    }
++
+     private var availableTypes: [RoutineType] {
+         [.hydration, .exercise, .stretching, .eyeCare, .yoga, .posture, .breathing, .meditation, .sleep, .custom]
+     }
+ }
+ 
++private enum RoutineScheduleMode: String, CaseIterable, Identifiable {
++    case interval
++    case fixedTimes
++
++    var id: String { rawValue }
++
++    var title: String {
++        switch self {
++        case .interval: "Window + Interval"
++        case .fixedTimes: "Fixed Times"
++        }
++    }
++}
++
+ #Preview {
+     AddRoutineFlowView(onSave: { _ in })
+ }
+diff --git a/Jomado/Features/Routines/RoutineDetailView.swift b/Jomado/Features/Routines/RoutineDetailView.swift
+new file mode 100644
+index 0000000..ac59911
+--- /dev/null
++++ b/Jomado/Features/Routines/RoutineDetailView.swift
+@@ -0,0 +1,294 @@
++import SwiftData
++import SwiftUI
++
++struct RoutineDetailView: View {
++    @Environment(\.dismiss) private var dismiss
++    @EnvironmentObject private var model: JomadoAppModel
++    @Bindable var routine: RoutineEntity
++
++    @State private var isEditing = false
++    @State private var showsDeleteConfirmation = false
++
++    var body: some View {
++        ScrollView {
++            VStack(spacing: 0) {
++                hero
++
++                VStack(spacing: 16) {
++                    statusCard
++                    scheduleCard
++                    companionCard
++                    completionCard
++                    actionsCard
++                }
++                .padding(.horizontal, 18)
++                .padding(.top, 18)
++                .padding(.bottom, 34)
++            }
++        }
++        .jomadoPageBackground()
++        .toolbar(.hidden, for: .navigationBar)
++        .fullScreenCover(isPresented: $isEditing) {
++            AddRoutineFlowView(initialRoutine: routine.instance) { draft in
++                Task { await model.updateRoutine(id: routine.id, draft: draft) }
++            }
++        }
++        .confirmationDialog(
++            "Delete \(routine.name)?",
++            isPresented: $showsDeleteConfirmation,
++            titleVisibility: .visible
++        ) {
++            Button("Delete Routine", role: .destructive) {
++                let routineID = routine.id
++                dismiss()
++                Task { await model.deleteRoutine(id: routineID) }
++            }
++            Button("Cancel", role: .cancel) {}
++        } message: {
++            Text("Future reminders will stop. Completed and resolved history is kept for your Insights unless you explicitly remove app data.")
++        }
++    }
++
++    private var hero: some View {
++        ZStack(alignment: .top) {
++            JomadoLandscapeBackground()
++
++            HStack {
++                Button(action: dismiss.callAsFunction) {
++                    Image(systemName: "chevron.left")
++                        .font(.system(size: 17, weight: .heavy))
++                        .foregroundStyle(JomadoTheme.navy)
++                        .frame(width: 44, height: 44)
++                        .background(.white.opacity(0.92), in: Circle())
++                }
++                .accessibilityLabel("Back to routines")
++
++                JomadoBrandWordmark()
++                Spacer()
++
++                Button {
++                    isEditing = true
++                } label: {
++                    Image(systemName: "pencil")
++                        .font(.system(size: 18, weight: .bold))
++                        .foregroundStyle(.white)
++                        .frame(width: 48, height: 48)
++                        .background(JomadoTheme.cyan, in: Circle())
++                        .shadow(color: JomadoTheme.cyan.opacity(0.28), radius: 10, y: 5)
++                }
++                .accessibilityLabel("Edit routine")
++            }
++            .padding(.horizontal, 20)
++            .padding(.top, 12)
++
++            VStack(alignment: .leading, spacing: 6) {
++                Text(routine.name)
++                    .font(.system(size: 34, weight: .heavy, design: .rounded))
++                    .foregroundStyle(JomadoTheme.navy)
++                    .lineLimit(2)
++                Text(routineSubtitle)
++                    .font(.system(.body, design: .rounded, weight: .medium))
++                    .foregroundStyle(JomadoTheme.secondaryText)
++                    .lineLimit(2)
++            }
++            .frame(maxWidth: 215, alignment: .leading)
++            .offset(x: -58, y: 88)
++
++            AnimatedMomoView(
++                expression: routine.enabled ? .hello : .hopeful,
++                cue: routine.enabled ? .gentleBounce : .idleFloat,
++                accessibilityLabel: "Momo beside \(routine.name)"
++            )
++            .frame(width: 150, height: 150)
++            .offset(x: 96, y: 84)
++        }
++        .frame(height: 270)
++    }
++
++    private var statusCard: some View {
++        HStack(spacing: 14) {
++            JomadoIconBadge(
++                symbol: routine.symbolName,
++                color: Color(jomadoHex: routine.accentHex),
++                size: 62
++            )
++
++            VStack(alignment: .leading, spacing: 4) {
++                Text(routine.enabled ? "Routine active" : "Routine paused")
++                    .font(.system(.headline, design: .rounded, weight: .heavy))
++                    .foregroundStyle(JomadoTheme.navy)
++                Text(routine.enabled
++                     ? "Jomado will keep this routine in the delivery schedule."
++                     : "No new reminders are scheduled while this routine is paused.")
++                    .font(.system(.caption, design: .rounded))
++                    .foregroundStyle(JomadoTheme.secondaryText)
++            }
++
++            Spacer(minLength: 8)
++
++            Toggle(
++                "Routine active",
++                isOn: Binding(
++                    get: { routine.enabled },
++                    set: { enabled in
++                        routine.enabled = enabled
++                        Task { await model.setRoutineEnabled(id: routine.id, enabled: enabled) }
++                    }
++                )
++            )
++            .labelsHidden()
++            .tint(JomadoTheme.cyan)
++        }
++        .jomadoCard()
++    }
++
++    private var scheduleCard: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Schedule", symbol: "clock.fill")
++            detailRow("Pattern", value: scheduleDescription(routine.schedule))
++            detailRow("Days", value: dayDescription(routine.schedule))
++            detailRow("Delivery", value: routine.deliveryMode == .alarmAndCompanion ? "Alarm + Companion" : "Companion only")
++
++            Button {
++                isEditing = true
++            } label: {
++                Label("Edit schedule", systemImage: "calendar.badge.clock")
++                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
++                    .frame(maxWidth: .infinity, minHeight: 48)
++            }
++            .foregroundStyle(JomadoTheme.blue)
++            .background(JomadoTheme.sky.opacity(0.65), in: RoundedRectangle(cornerRadius: 16))
++        }
++        .jomadoCard()
++    }
++
++    private var companionCard: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            sectionHeader("Momo & reminder style", symbol: "face.smiling.fill")
++            detailRow("Personality", value: routine.personality.displayName)
++            detailRow("Intensity", value: routine.intensity.displayName)
++            detailRow(
++                "Smart snooze",
++                value: routine.smartSnoozeEnabled
++                    ? "\(routine.snoozeMinutes) min • up to \(routine.maxSnoozes)"
++                    : "Off"
++            )
++            detailRow("Helpful tips", value: routine.contentTipEnabled ? "On" : "Off")
++            if let goal = routine.goal, !goal.isEmpty {
++                detailRow("Goal", value: goal)
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var completionCard: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            sectionHeader("Completion", symbol: "checkmark.circle.fill")
++            Text("Only an explicit completion action counts this routine as done.")
++                .font(.system(.subheadline, design: .rounded))
++                .foregroundStyle(JomadoTheme.secondaryText)
++            HStack {
++                Text("Action label")
++                    .font(.system(.subheadline, design: .rounded, weight: .bold))
++                    .foregroundStyle(JomadoTheme.navy)
++                Spacer()
++                Text(routine.completionLabel)
++                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
++                    .foregroundStyle(JomadoTheme.blue)
++            }
++        }
++        .jomadoCard()
++    }
++
++    private var actionsCard: some View {
++        VStack(spacing: 12) {
++            Button {
++                isEditing = true
++            } label: {
++                Label("Edit Routine", systemImage: "pencil")
++            }
++            .buttonStyle(JomadoPrimaryButtonStyle())
++
++            Button(role: .destructive) {
++                showsDeleteConfirmation = true
++            } label: {
++                Label("Delete Routine", systemImage: "trash")
++                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
++                    .frame(maxWidth: .infinity, minHeight: 50)
++            }
++        }
++        .padding(.top, 4)
++    }
++
++    private func sectionHeader(_ title: String, symbol: String) -> some View {
++        Label(title, systemImage: symbol)
++            .font(.system(.title3, design: .rounded, weight: .heavy))
++            .foregroundStyle(JomadoTheme.navy)
++    }
++
++    private func detailRow(_ title: String, value: String) -> some View {
++        HStack(alignment: .firstTextBaseline, spacing: 12) {
++            Text(title)
++                .font(.system(.subheadline, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.secondaryText)
++            Spacer(minLength: 12)
++            Text(value)
++                .font(.system(.subheadline, design: .rounded, weight: .bold))
++                .foregroundStyle(JomadoTheme.navy)
++                .multilineTextAlignment(.trailing)
++        }
++    }
++
++    private var routineSubtitle: String {
++        switch routine.routineType {
++        case .hydration: "Drink water and feel your best."
++        case .exercise: "Get moving for a stronger you."
++        case .stretching: "Loosen up and stay flexible."
++        case .eyeCare: "Give your eyes a proper break."
++        case .posture: "Reset your posture through the day."
++        case .breathing: "Take a moment to reset."
++        case .meditation: "Find calm in your day."
++        case .yoga: "Create space for balance and movement."
++        case .sleep: "Rest well for a brighter tomorrow."
++        case .custom, .generic: "A small routine worth keeping."
++        }
++    }
++
++    private func scheduleDescription(_ schedule: RoutineSchedule) -> String {
++        switch schedule {
++        case .interval(let start, let end, let minutes, _):
++            return "\(timeLabel(start))–\(timeLabel(end)) • \(repeatLabel(minutes))"
++        case .fixed(let times, _):
++            return times.sorted().map(timeLabel).joined(separator: ", ")
++        }
++    }
++
++    private func dayDescription(_ schedule: RoutineSchedule) -> String {
++        let days: Set<Weekday>
++        switch schedule {
++        case .interval(_, _, _, let weekdays), .fixed(_, let weekdays):
++            days = weekdays
++        }
++        if days.count == Weekday.allCases.count { return "Daily" }
++        let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
++        if days == weekdays { return "Weekdays" }
++        return Weekday.allCases.filter(days.contains).map(\.shortName).joined(separator: ", ")
++    }
++
++    private func timeLabel(_ time: LocalTime) -> String {
++        var components = DateComponents()
++        components.hour = time.hour
++        components.minute = time.minute
++        let date = Calendar.current.date(from: components) ?? .now
++        return date.formatted(date: .omitted, time: .shortened)
++    }
++
++    private func repeatLabel(_ minutes: Int) -> String {
++        if minutes < 60 { return "Every \(minutes) min" }
++        if minutes % 60 == 0 {
++            let hours = minutes / 60
++            return "Every \(hours) hour\(hours == 1 ? "" : "s")"
++        }
++        return "Every \(minutes / 60)h \(minutes % 60)m"
++    }
++}
+diff --git a/Jomado/Features/Routines/RoutinesView.swift b/Jomado/Features/Routines/RoutinesView.swift
+index 2658341..f57ef13 100644
+--- a/Jomado/Features/Routines/RoutinesView.swift
++++ b/Jomado/Features/Routines/RoutinesView.swift
+@@ -47,7 +47,7 @@ struct RoutinesView: View {
+     }
+ 
+     private var filteredRoutines: [RoutineEntity] {
+-        routines.filter(filter.includes)
++        routines.filter { $0.archivedAt == nil && filter.includes($0) }
+     }
+ 
+     private var hero: some View {
+@@ -117,27 +117,34 @@ struct RoutinesView: View {
+     }
+ 
+     private func routineCard(_ routine: RoutineEntity) -> some View {
+-        let type = routine.routineType
+         let accent = Color(jomadoHex: routine.accentHex)
+ 
+-        return HStack(spacing: 13) {
+-            JomadoIconBadge(symbol: routine.symbolName, color: accent, size: 56)
++        return HStack(spacing: 12) {
++            NavigationLink {
++                RoutineDetailView(routine: routine)
++            } label: {
++                HStack(spacing: 13) {
++                    JomadoIconBadge(symbol: routine.symbolName, color: accent, size: 58)
+ 
+-            VStack(alignment: .leading, spacing: 4) {
+-                Text(routine.name)
+-                    .font(.system(.headline, design: .rounded, weight: .heavy))
+-                    .foregroundStyle(JomadoTheme.navy)
+-                Text("\(routine.personality.displayName) • \(routine.intensity.displayName)")
+-                    .font(.system(.caption, design: .rounded))
+-                    .foregroundStyle(JomadoTheme.secondaryText)
+-                    .lineLimit(1)
+-                Label(scheduleDescription(routine.schedule), systemImage: "clock")
+-                    .font(.system(.caption2, design: .rounded, weight: .semibold))
+-                    .foregroundStyle(JomadoTheme.navy.opacity(0.8))
+-                    .lineLimit(2)
++                    VStack(alignment: .leading, spacing: 3) {
++                        Text(routine.name)
++                            .font(.system(.headline, design: .rounded, weight: .heavy))
++                            .foregroundStyle(JomadoTheme.navy)
++                        Text(routineSubtitle(routine.routineType))
++                            .font(.system(.caption, design: .rounded))
++                            .foregroundStyle(JomadoTheme.secondaryText)
++                            .lineLimit(1)
++                        Label(scheduleDescription(routine.schedule), systemImage: "clock")
++                            .font(.system(.caption2, design: .rounded, weight: .semibold))
++                            .foregroundStyle(JomadoTheme.navy.opacity(0.8))
++                            .lineLimit(2)
++                    }
++                }
++                .contentShape(Rectangle())
+             }
++            .buttonStyle(.plain)
+ 
+-            Spacer(minLength: 4)
++            Spacer(minLength: 2)
+ 
+             Toggle(
+                 "Enabled",
+@@ -152,25 +159,36 @@ struct RoutinesView: View {
+             .labelsHidden()
+             .tint(JomadoTheme.cyan)
+ 
+-            Menu {
+-                Button(role: .destructive) {
+-                    Task { await model.deleteRoutine(id: routine.id) }
+-                } label: {
+-                    Label("Delete Routine", systemImage: "trash")
+-                }
++            NavigationLink {
++                RoutineDetailView(routine: routine)
+             } label: {
+-                Image(systemName: "ellipsis")
++                Image(systemName: "chevron.right")
+                     .font(.system(.body, weight: .bold))
+                     .foregroundStyle(JomadoTheme.secondaryText)
+-                    .frame(width: 36, height: 36)
++                    .frame(width: 28, height: 44)
+             }
+-            .accessibilityLabel("Routine actions")
++            .accessibilityLabel("Open \(routine.name)")
+         }
+         .padding(15)
+         .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+         .shadow(color: JomadoTheme.navy.opacity(0.06), radius: 12, y: 6)
+     }
+ 
++    private func routineSubtitle(_ type: RoutineType) -> String {
++        switch type {
++        case .hydration: "Drink water and feel your best."
++        case .exercise: "Get moving for a stronger you."
++        case .stretching: "Loosen up and stay flexible."
++        case .eyeCare: "Give your eyes a rest."
++        case .posture: "Sit and stand better."
++        case .breathing: "Take a moment to reset."
++        case .meditation: "Find calm in your day."
++        case .yoga: "Build balance and mobility."
++        case .sleep: "Rest well for a brighter tomorrow."
++        case .custom, .generic: "Keep a small promise to yourself."
++        }
++    }
++
+     private func scheduleDescription(_ schedule: RoutineSchedule) -> String {
+         switch schedule {
+         case .interval(let start, let end, let minutes, let weekdays):
+diff --git a/Jomado/Features/Today/TodayView.swift b/Jomado/Features/Today/TodayView.swift
+index df0c0b3..cb2e441 100644
+--- a/Jomado/Features/Today/TodayView.swift
++++ b/Jomado/Features/Today/TodayView.swift
+@@ -12,7 +12,7 @@ struct TodayView: View {
+         calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? startOfToday.addingTimeInterval(86_400)
+     }
+ 
+-    private var activeRoutines: [RoutineEntity] { routines.filter(\.enabled) }
++    private var activeRoutines: [RoutineEntity] { routines.filter { $0.enabled && $0.archivedAt == nil } }
+     private var todayOccurrences: [ReminderOccurrenceEntity] {
+         occurrences.filter { $0.scheduledAt >= startOfToday && $0.scheduledAt < startOfTomorrow }
+     }
+diff --git a/Jomado/Persistence/RoutineEntities.swift b/Jomado/Persistence/RoutineEntities.swift
+index b3728a2..cb89c71 100644
+--- a/Jomado/Persistence/RoutineEntities.swift
++++ b/Jomado/Persistence/RoutineEntities.swift
+@@ -26,6 +26,10 @@ final class RoutineEntity {
+     var createdAt: Date
+     var updatedAt: Date
+     var lastReconciledAt: Date?
++    var mascotID: String = "momo"
++    var goal: String?
++    var contentTipEnabled: Bool = true
++    var archivedAt: Date?
+ 
+     init(instance: RoutineInstance) {
+         id = instance.id
+@@ -45,6 +49,10 @@ final class RoutineEntity {
+         createdAt = instance.createdAt
+         updatedAt = instance.updatedAt
+         lastReconciledAt = nil
++        mascotID = instance.mascotID
++        goal = instance.goal
++        contentTipEnabled = instance.contentTipEnabled
++        archivedAt = nil
+ 
+         switch instance.schedule {
+         case .interval(let start, let end, let everyMinutes, let weekdays):
+@@ -64,6 +72,42 @@ final class RoutineEntity {
+         }
+     }
+ 
++    func apply(_ draft: RoutineDraft, now: Date = .now) {
++        name = draft.name
++        typeRaw = draft.type.rawValue
++        templateID = "template.\(draft.type.rawValue)"
++        symbolName = draft.symbolName ?? draft.type.symbolName
++        accentHex = draft.accentHex ?? draft.type.accentHex
++        deliveryModeRaw = draft.deliveryMode.rawValue
++        personalityRaw = draft.personality.rawValue
++        intensityRaw = draft.intensity.rawValue
++        smartSnoozeEnabled = draft.smartSnoozeEnabled
++        snoozeMinutes = draft.snoozeMinutes
++        maxSnoozes = draft.maxSnoozes
++        completionLabel = draft.completionLabel ?? draft.type.defaultCompletionLabel
++        mascotID = draft.mascotID
++        goal = draft.goal
++        contentTipEnabled = draft.contentTipEnabled
++        updatedAt = now
++
++        switch draft.schedule {
++        case .interval(let start, let end, let everyMinutes, let weekdays):
++            scheduleKindRaw = RoutineTemplate.ScheduleKind.interval.rawValue
++            startMinute = start.minutesFromMidnight
++            endMinute = end.minutesFromMidnight
++            intervalMinutes = everyMinutes
++            fixedMinutesJSON = nil
++            weekdayMask = Self.weekdayMask(weekdays)
++        case .fixed(let times, let weekdays):
++            scheduleKindRaw = RoutineTemplate.ScheduleKind.fixedTimes.rawValue
++            startMinute = nil
++            endMinute = nil
++            intervalMinutes = nil
++            fixedMinutesJSON = try? JSONEncoder().encode(times.map(\.minutesFromMidnight))
++            weekdayMask = Self.weekdayMask(weekdays)
++        }
++    }
++
+     var routineType: RoutineType { RoutineType(rawValue: typeRaw) ?? .generic }
+     var personality: ReminderPersonality { ReminderPersonality(rawValue: personalityRaw) ?? .playful }
+     var intensity: ReminderIntensity { ReminderIntensity(rawValue: intensityRaw) ?? .balanced }
+@@ -105,7 +149,10 @@ final class RoutineEntity {
+             maxSnoozes: maxSnoozes,
+             completionLabel: completionLabel,
+             createdAt: createdAt,
+-            updatedAt: updatedAt
++            updatedAt: updatedAt,
++            mascotID: mascotID,
++            goal: goal,
++            contentTipEnabled: contentTipEnabled
+         )
+     }
+ 
+diff --git a/Jomado/Services/AlarmIntents.swift b/Jomado/Services/AlarmIntents.swift
+index 7862961..06a9e83 100644
+--- a/Jomado/Services/AlarmIntents.swift
++++ b/Jomado/Services/AlarmIntents.swift
+@@ -2,9 +2,9 @@ import AppIntents
+ import Foundation
+ 
+ struct StopJomadoAlarmIntent: LiveActivityIntent {
+-    static var title: LocalizedStringResource = "Stop Jomado Alarm"
+-    static var description = IntentDescription("Acknowledges a Jomado alarm without completing the routine.")
+-    static var openAppWhenRun = false
++    static let title: LocalizedStringResource = "Stop Jomado Alarm"
++    static let description = IntentDescription("Acknowledges a Jomado alarm without completing the routine.")
++    static let openAppWhenRun = false
+ 
+     @Parameter(title: "Routine ID")
+     var routineID: String
+@@ -39,9 +39,9 @@ struct StopJomadoAlarmIntent: LiveActivityIntent {
+ }
+ 
+ struct OpenJomadoAlarmIntent: LiveActivityIntent {
+-    static var title: LocalizedStringResource = "Open Jomado"
+-    static var description = IntentDescription("Opens Jomado for the active routine reminder.")
+-    static var openAppWhenRun = true
++    static let title: LocalizedStringResource = "Open Jomado"
++    static let description = IntentDescription("Opens Jomado for the active routine reminder.")
++    static let openAppWhenRun = true
+ 
+     @Parameter(title: "Routine ID")
+     var routineID: String
+diff --git a/Jomado/Services/RoutineSchedulingCoordinator.swift b/Jomado/Services/RoutineSchedulingCoordinator.swift
+index f882405..2f3dde1 100644
+--- a/Jomado/Services/RoutineSchedulingCoordinator.swift
++++ b/Jomado/Services/RoutineSchedulingCoordinator.swift
+@@ -36,6 +36,27 @@ final class RoutineSchedulingCoordinator {
+         return entity
+     }
+ 
++    func saveStarterRoutines(_ drafts: [RoutineDraft], now: Date = .now) async throws {
++        let existingTypes = Set(try fetchAllRoutines().map(\.routineType))
++        var inserted = false
++
++        for draft in drafts where !existingTypes.contains(draft.type) {
++            modelContext.insert(RoutineEntity(instance: draft.materialize(now: now)))
++            inserted = true
++        }
++
++        guard inserted else { return }
++        try modelContext.save()
++        await reconcile(now: now)
++    }
++
++    func update(routineID: UUID, draft: RoutineDraft, now: Date = .now) async throws {
++        guard let routine = try fetchRoutine(id: routineID), routine.archivedAt == nil else { return }
++        routine.apply(draft, now: now)
++        try modelContext.save()
++        await reconcile(now: now)
++    }
++
+     func setEnabled(routineID: UUID, enabled: Bool, now: Date = .now) async throws {
+         guard let routine = try fetchRoutine(id: routineID) else { return }
+         routine.enabled = enabled
+@@ -45,13 +66,28 @@ final class RoutineSchedulingCoordinator {
+     }
+ 
+     func delete(routineID: UUID, now: Date = .now) async throws {
+-        if let routine = try fetchRoutine(id: routineID) {
+-            modelContext.delete(routine)
+-        }
++        guard let routine = try fetchRoutine(id: routineID) else { return }
++        routine.enabled = false
++        routine.archivedAt = now
++        routine.updatedAt = now
++
+         let occurrences = try fetchOccurrences(routineID: routineID)
+-        let identifiers = occurrences.compactMap(\.notificationID)
+-        let alarmIDs = occurrences.map(\.id)
+-        occurrences.forEach(modelContext.delete)
++        let unresolved = occurrences.filter { !$0.status.isTerminal }
++        let identifiers = unresolved.compactMap(\.notificationID)
++        let alarmIDs = unresolved.map(\.id)
++
++        for occurrence in unresolved {
++            if occurrence.scheduledAt <= now {
++                occurrence.status = .expired
++                occurrence.resolvedAt = now
++                occurrence.followUpDate = nil
++                occurrence.followUpContentID = nil
++                occurrence.notificationID = nil
++            } else {
++                modelContext.delete(occurrence)
++            }
++        }
++
+         try modelContext.save()
+         await notificationScheduler.cancel(requestIdentifiers: identifiers)
+         alarmScheduler.cancel(ids: alarmIDs)
+@@ -394,6 +430,24 @@ final class RoutineSchedulingCoordinator {
+         return occurrence
+     }
+ 
++    func openOccurrence(
++        occurrenceID: UUID,
++        now: Date = .now
++    ) async throws -> ReminderOccurrence? {
++        guard
++            let occurrenceEntity = try fetchOccurrence(id: occurrenceID),
++            let routine = try fetchRoutine(id: occurrenceEntity.routineID)
++        else { return nil }
++
++        var occurrence = occurrenceEntity.domainOccurrence(for: routine)
++        if !occurrence.status.isTerminal {
++            occurrence = try ReminderStateMachine.apply(.opened, to: occurrence, at: now)
++            occurrenceEntity.apply(occurrence)
++            try modelContext.save()
++        }
++        return occurrence
++    }
++
+     func routine(for id: UUID) throws -> RoutineEntity? {
+         try fetchRoutine(id: id)
+     }
+@@ -475,9 +529,16 @@ final class RoutineSchedulingCoordinator {
+         return selected
+     }
+ 
++    private func fetchAllRoutines() throws -> [RoutineEntity] {
++        let descriptor = FetchDescriptor<RoutineEntity>(
++            sortBy: [SortDescriptor(\.createdAt)]
++        )
++        return try modelContext.fetch(descriptor)
++    }
++
+     private func fetchEnabledRoutines() throws -> [RoutineEntity] {
+         let descriptor = FetchDescriptor<RoutineEntity>(
+-            predicate: #Predicate { $0.enabled == true },
++            predicate: #Predicate { $0.enabled == true && $0.archivedAt == nil },
+             sortBy: [SortDescriptor(\.createdAt)]
+         )
+         return try modelContext.fetch(descriptor)
+diff --git a/Tests/JomadoTests/RoutineSchedulePlannerTests.swift b/Tests/JomadoTests/RoutineSchedulePlannerTests.swift
+index 8365abf..ba2339f 100644
+--- a/Tests/JomadoTests/RoutineSchedulePlannerTests.swift
++++ b/Tests/JomadoTests/RoutineSchedulePlannerTests.swift
+@@ -42,6 +42,45 @@ final class RoutineSchedulePlannerTests: XCTestCase {
+         XCTAssertEqual(calendar.component(.hour, from: dates[4]), 12)
+     }
+ 
++    func testIntervalScheduleCanCrossMidnight() throws {
++        var calendar = Calendar(identifier: .gregorian)
++        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
++        let start = try XCTUnwrap(
++            calendar.date(from: DateComponents(year: 2026, month: 9, day: 28, hour: 21, minute: 30))
++        )
++        let end = try XCTUnwrap(
++            calendar.date(from: DateComponents(year: 2026, month: 9, day: 29, hour: 2, minute: 30))
++        )
++
++        let routine = RoutineDraft(
++            type: .sleep,
++            name: "Night routine",
++            schedule: .interval(
++                start: LocalTime(hour: 22, minute: 0),
++                end: LocalTime(hour: 2, minute: 0),
++                everyMinutes: 60,
++                weekdays: [.monday]
++            ),
++            deliveryMode: .companionOnly,
++            personality: .gentle,
++            intensity: .soft,
++            smartSnoozeEnabled: true,
++            snoozeMinutes: 10,
++            maxSnoozes: 2
++        ).materialize()
++
++        let dates = RoutineSchedulePlanner.upcomingDates(
++            for: routine,
++            from: start,
++            through: end,
++            calendar: calendar
++        )
++
++        XCTAssertEqual(dates.count, 5)
++        XCTAssertEqual(dates.map { calendar.component(.hour, from: $0) }, [22, 23, 0, 1, 2])
++        XCTAssertEqual(calendar.component(.day, from: dates[2]), 29)
++    }
++
+     func testOccurrenceKeyIsStableForSameLocalSlot() throws {
+         var calendar = Calendar(identifier: .gregorian)
+         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Kolkata"))

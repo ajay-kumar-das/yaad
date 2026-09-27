@@ -42,6 +42,45 @@ final class RoutineSchedulePlannerTests: XCTestCase {
         XCTAssertEqual(calendar.component(.hour, from: dates[4]), 12)
     }
 
+    func testIntervalScheduleCanCrossMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 28, hour: 21, minute: 30))
+        )
+        let end = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 29, hour: 2, minute: 30))
+        )
+
+        let routine = RoutineDraft(
+            type: .sleep,
+            name: "Night routine",
+            schedule: .interval(
+                start: LocalTime(hour: 22, minute: 0),
+                end: LocalTime(hour: 2, minute: 0),
+                everyMinutes: 60,
+                weekdays: [.monday]
+            ),
+            deliveryMode: .companionOnly,
+            personality: .gentle,
+            intensity: .soft,
+            smartSnoozeEnabled: true,
+            snoozeMinutes: 10,
+            maxSnoozes: 2
+        ).materialize()
+
+        let dates = RoutineSchedulePlanner.upcomingDates(
+            for: routine,
+            from: start,
+            through: end,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(dates.count, 5)
+        XCTAssertEqual(dates.map { calendar.component(.hour, from: $0) }, [22, 23, 0, 1, 2])
+        XCTAssertEqual(calendar.component(.day, from: dates[2]), 29)
+    }
+
     func testOccurrenceKeyIsStableForSameLocalSlot() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Kolkata"))

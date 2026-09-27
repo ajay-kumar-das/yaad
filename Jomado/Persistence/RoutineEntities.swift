@@ -26,6 +26,10 @@ final class RoutineEntity {
     var createdAt: Date
     var updatedAt: Date
     var lastReconciledAt: Date?
+    var mascotID: String = "momo"
+    var goal: String?
+    var contentTipEnabled: Bool = true
+    var archivedAt: Date?
 
     init(instance: RoutineInstance) {
         id = instance.id
@@ -45,8 +49,48 @@ final class RoutineEntity {
         createdAt = instance.createdAt
         updatedAt = instance.updatedAt
         lastReconciledAt = nil
+        mascotID = instance.mascotID
+        goal = instance.goal
+        contentTipEnabled = instance.contentTipEnabled
+        archivedAt = nil
 
         switch instance.schedule {
+        case .interval(let start, let end, let everyMinutes, let weekdays):
+            scheduleKindRaw = RoutineTemplate.ScheduleKind.interval.rawValue
+            startMinute = start.minutesFromMidnight
+            endMinute = end.minutesFromMidnight
+            intervalMinutes = everyMinutes
+            fixedMinutesJSON = nil
+            weekdayMask = Self.weekdayMask(weekdays)
+        case .fixed(let times, let weekdays):
+            scheduleKindRaw = RoutineTemplate.ScheduleKind.fixedTimes.rawValue
+            startMinute = nil
+            endMinute = nil
+            intervalMinutes = nil
+            fixedMinutesJSON = try? JSONEncoder().encode(times.map(\.minutesFromMidnight))
+            weekdayMask = Self.weekdayMask(weekdays)
+        }
+    }
+
+    func apply(_ draft: RoutineDraft, now: Date = .now) {
+        name = draft.name
+        typeRaw = draft.type.rawValue
+        templateID = "template.\(draft.type.rawValue)"
+        symbolName = draft.symbolName ?? draft.type.symbolName
+        accentHex = draft.accentHex ?? draft.type.accentHex
+        deliveryModeRaw = draft.deliveryMode.rawValue
+        personalityRaw = draft.personality.rawValue
+        intensityRaw = draft.intensity.rawValue
+        smartSnoozeEnabled = draft.smartSnoozeEnabled
+        snoozeMinutes = draft.snoozeMinutes
+        maxSnoozes = draft.maxSnoozes
+        completionLabel = draft.completionLabel ?? draft.type.defaultCompletionLabel
+        mascotID = draft.mascotID
+        goal = draft.goal
+        contentTipEnabled = draft.contentTipEnabled
+        updatedAt = now
+
+        switch draft.schedule {
         case .interval(let start, let end, let everyMinutes, let weekdays):
             scheduleKindRaw = RoutineTemplate.ScheduleKind.interval.rawValue
             startMinute = start.minutesFromMidnight
@@ -105,7 +149,10 @@ final class RoutineEntity {
             maxSnoozes: maxSnoozes,
             completionLabel: completionLabel,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            mascotID: mascotID,
+            goal: goal,
+            contentTipEnabled: contentTipEnabled
         )
     }
 

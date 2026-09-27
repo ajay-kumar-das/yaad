@@ -12,7 +12,7 @@ struct TodayView: View {
         calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? startOfToday.addingTimeInterval(86_400)
     }
 
-    private var activeRoutines: [RoutineEntity] { routines.filter(\.enabled) }
+    private var activeRoutines: [RoutineEntity] { routines.filter { $0.enabled && $0.archivedAt == nil } }
     private var todayOccurrences: [ReminderOccurrenceEntity] {
         occurrences.filter { $0.scheduledAt >= startOfToday && $0.scheduledAt < startOfTomorrow }
     }

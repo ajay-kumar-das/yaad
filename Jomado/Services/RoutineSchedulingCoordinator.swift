@@ -36,6 +36,27 @@ final class RoutineSchedulingCoordinator {
         return entity
     }
 
+    func saveStarterRoutines(_ drafts: [RoutineDraft], now: Date = .now) async throws {
+        let existingTypes = Set(try fetchAllRoutines().map(\.routineType))
+        var inserted = false
+
+        for draft in drafts where !existingTypes.contains(draft.type) {
+            modelContext.insert(RoutineEntity(instance: draft.materialize(now: now)))
+            inserted = true
+        }
+
+        guard inserted else { return }
+        try modelContext.save()
+        await reconcile(now: now)
+    }
+
+    func update(routineID: UUID, draft: RoutineDraft, now: Date = .now) async throws {
+        guard let routine = try fetchRoutine(id: routineID), routine.archivedAt == nil else { return }
+        routine.apply(draft, now: now)
+        try modelContext.save()
+        await reconcile(now: now)
+    }
+
     func setEnabled(routineID: UUID, enabled: Bool, now: Date = .now) async throws {
         guard let routine = try fetchRoutine(id: routineID) else { return }
         routine.enabled = enabled
@@ -45,13 +66,28 @@ final class RoutineSchedulingCoordinator {
     }
 
     func delete(routineID: UUID, now: Date = .now) async throws {
-        if let routine = try fetchRoutine(id: routineID) {
-            modelContext.delete(routine)
-        }
+        guard let routine = try fetchRoutine(id: routineID) else { return }
+        routine.enabled = false
+        routine.archivedAt = now
+        routine.updatedAt = now
+
         let occurrences = try fetchOccurrences(routineID: routineID)
-        let identifiers = occurrences.compactMap(\.notificationID)
-        let alarmIDs = occurrences.map(\.id)
-        occurrences.forEach(modelContext.delete)
+        let unresolved = occurrences.filter { !$0.status.isTerminal }
+        let identifiers = unresolved.compactMap(\.notificationID)
+        let alarmIDs = unresolved.map(\.id)
+
+        for occurrence in unresolved {
+            if occurrence.scheduledAt <= now {
+                occurrence.status = .expired
+                occurrence.resolvedAt = now
+                occurrence.followUpDate = nil
+                occurrence.followUpContentID = nil
+                occurrence.notificationID = nil
+            } else {
+                modelContext.delete(occurrence)
+            }
+        }
+
         try modelContext.save()
         await notificationScheduler.cancel(requestIdentifiers: identifiers)
         alarmScheduler.cancel(ids: alarmIDs)
@@ -394,6 +430,24 @@ final class RoutineSchedulingCoordinator {
         return occurrence
     }
 
+    func openOccurrence(
+        occurrenceID: UUID,
+        now: Date = .now
+    ) async throws -> ReminderOccurrence? {
+        guard
+            let occurrenceEntity = try fetchOccurrence(id: occurrenceID),
+            let routine = try fetchRoutine(id: occurrenceEntity.routineID)
+        else { return nil }
+
+        var occurrence = occurrenceEntity.domainOccurrence(for: routine)
+        if !occurrence.status.isTerminal {
+            occurrence = try ReminderStateMachine.apply(.opened, to: occurrence, at: now)
+            occurrenceEntity.apply(occurrence)
+            try modelContext.save()
+        }
+        return occurrence
+    }
+
     func routine(for id: UUID) throws -> RoutineEntity? {
         try fetchRoutine(id: id)
     }
@@ -475,9 +529,16 @@ final class RoutineSchedulingCoordinator {
         return selected
     }
 
+    private func fetchAllRoutines() throws -> [RoutineEntity] {
+        let descriptor = FetchDescriptor<RoutineEntity>(
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        return try modelContext.fetch(descriptor)
+    }
+
     private func fetchEnabledRoutines() throws -> [RoutineEntity] {
         let descriptor = FetchDescriptor<RoutineEntity>(
-            predicate: #Predicate { $0.enabled == true },
+            predicate: #Predicate { $0.enabled == true && $0.archivedAt == nil },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         return try modelContext.fetch(descriptor)

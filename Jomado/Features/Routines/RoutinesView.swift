@@ -47,7 +47,7 @@ struct RoutinesView: View {
     }
 
     private var filteredRoutines: [RoutineEntity] {
-        routines.filter(filter.includes)
+        routines.filter { $0.archivedAt == nil && filter.includes($0) }
     }
 
     private var hero: some View {
@@ -117,27 +117,34 @@ struct RoutinesView: View {
     }
 
     private func routineCard(_ routine: RoutineEntity) -> some View {
-        let type = routine.routineType
         let accent = Color(jomadoHex: routine.accentHex)
 
-        return HStack(spacing: 13) {
-            JomadoIconBadge(symbol: routine.symbolName, color: accent, size: 56)
+        return HStack(spacing: 12) {
+            NavigationLink {
+                RoutineDetailView(routine: routine)
+            } label: {
+                HStack(spacing: 13) {
+                    JomadoIconBadge(symbol: routine.symbolName, color: accent, size: 58)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(routine.name)
-                    .font(.system(.headline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(JomadoTheme.navy)
-                Text("\(routine.personality.displayName) • \(routine.intensity.displayName)")
-                    .font(.system(.caption, design: .rounded))
-                    .foregroundStyle(JomadoTheme.secondaryText)
-                    .lineLimit(1)
-                Label(scheduleDescription(routine.schedule), systemImage: "clock")
-                    .font(.system(.caption2, design: .rounded, weight: .semibold))
-                    .foregroundStyle(JomadoTheme.navy.opacity(0.8))
-                    .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(routine.name)
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .foregroundStyle(JomadoTheme.navy)
+                        Text(routineSubtitle(routine.routineType))
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundStyle(JomadoTheme.secondaryText)
+                            .lineLimit(1)
+                        Label(scheduleDescription(routine.schedule), systemImage: "clock")
+                            .font(.system(.caption2, design: .rounded, weight: .semibold))
+                            .foregroundStyle(JomadoTheme.navy.opacity(0.8))
+                            .lineLimit(2)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            Spacer(minLength: 4)
+            Spacer(minLength: 2)
 
             Toggle(
                 "Enabled",
@@ -152,23 +159,34 @@ struct RoutinesView: View {
             .labelsHidden()
             .tint(JomadoTheme.cyan)
 
-            Menu {
-                Button(role: .destructive) {
-                    Task { await model.deleteRoutine(id: routine.id) }
-                } label: {
-                    Label("Delete Routine", systemImage: "trash")
-                }
+            NavigationLink {
+                RoutineDetailView(routine: routine)
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "chevron.right")
                     .font(.system(.body, weight: .bold))
                     .foregroundStyle(JomadoTheme.secondaryText)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 28, height: 44)
             }
-            .accessibilityLabel("Routine actions")
+            .accessibilityLabel("Open \(routine.name)")
         }
         .padding(15)
         .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .shadow(color: JomadoTheme.navy.opacity(0.06), radius: 12, y: 6)
+    }
+
+    private func routineSubtitle(_ type: RoutineType) -> String {
+        switch type {
+        case .hydration: "Drink water and feel your best."
+        case .exercise: "Get moving for a stronger you."
+        case .stretching: "Loosen up and stay flexible."
+        case .eyeCare: "Give your eyes a rest."
+        case .posture: "Sit and stand better."
+        case .breathing: "Take a moment to reset."
+        case .meditation: "Find calm in your day."
+        case .yoga: "Build balance and mobility."
+        case .sleep: "Rest well for a brighter tomorrow."
+        case .custom, .generic: "Keep a small promise to yourself."
+        }
     }
 
     private func scheduleDescription(_ schedule: RoutineSchedule) -> String {

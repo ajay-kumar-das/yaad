@@ -20,10 +20,22 @@ enum RoutineSchedulePlanner {
             if let weekday, routine.schedule.weekdays.contains(weekday) {
                 switch routine.schedule {
                 case .interval(let start, let end, let everyMinutes, _):
-                    guard everyMinutes > 0, start <= end else { break }
-                    var minute = start.minutesFromMidnight
-                    while minute <= end.minutesFromMidnight {
-                        if let date = date(on: day, minuteOfDay: minute, calendar: calendar),
+                    guard everyMinutes > 0 else { break }
+
+                    let startMinute = start.minutesFromMidnight
+                    let endMinute = end.minutesFromMidnight
+                    let finalMinute = endMinute >= startMinute
+                        ? endMinute
+                        : 24 * 60 + endMinute
+
+                    var minute = startMinute
+                    while minute <= finalMinute {
+                        let dayOffset = minute / (24 * 60)
+                        let minuteOfDay = minute % (24 * 60)
+                        guard let occurrenceDay = calendar.date(byAdding: .day, value: dayOffset, to: day) else {
+                            break
+                        }
+                        if let date = date(on: occurrenceDay, minuteOfDay: minuteOfDay, calendar: calendar),
                            date >= startDate,
                            date <= endDate {
                             result.append(date)
