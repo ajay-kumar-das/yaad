@@ -13,7 +13,7 @@ final class JomadoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         return true
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
@@ -21,7 +21,7 @@ final class JomadoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         completionHandler([.banner, .list, .sound])
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
@@ -60,4 +60,3 @@ final class JomadoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         }
     }
 }
-
