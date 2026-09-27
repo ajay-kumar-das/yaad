@@ -13,6 +13,8 @@ enum JomadoTab: Hashable {
 final class JomadoAppModel: ObservableObject {
     @Published private(set) var occurrence: ReminderOccurrence
     @Published private(set) var presentation: ReminderPresentation
+    @Published private(set) var activeSnoozeMinutes: Int?
+    @Published private(set) var snoozeUnavailableMessage: String?
     @Published var isReminderPresented = false
     @Published var selectedTab: JomadoTab = .today
     @Published private(set) var systemMessage: String?
@@ -248,8 +250,13 @@ final class JomadoAppModel: ObservableObject {
         )
     }
 
-    func remindLater(minutes: Int = 10, closeAfter: Bool = true) async {
+    func remindLater(closeAfter: Bool = true) async {
         guard !occurrence.status.isTerminal else { return }
+        guard let minutes = activeSnoozeMinutes, snoozeUnavailableMessage == nil else {
+            systemMessage = snoozeUnavailableMessage
+                ?? "Remind later is unavailable for this routine."
+            return
+        }
 
         var persistedUpdateApplied = false
         if let coordinator = routineCoordinator {
@@ -287,6 +294,7 @@ final class JomadoAppModel: ObservableObject {
             }
         }
 
+        await refreshPresentation(at: .now, force: true)
         if closeAfter { isReminderPresented = false }
     }
 
@@ -510,6 +518,22 @@ final class JomadoAppModel: ObservableObject {
             storedRoutine = try? coordinator.routine(for: occurrence.routineID)
         } else {
             storedRoutine = nil
+        }
+
+        if let storedRoutine {
+            if !storedRoutine.smartSnoozeEnabled {
+                activeSnoozeMinutes = nil
+                snoozeUnavailableMessage = "Remind later is off for this routine."
+            } else if occurrence.snoozeCount >= max(0, storedRoutine.maxSnoozes) {
+                activeSnoozeMinutes = nil
+                snoozeUnavailableMessage = "Snooze limit reached for this reminder."
+            } else {
+                activeSnoozeMinutes = max(1, storedRoutine.snoozeMinutes)
+                snoozeUnavailableMessage = nil
+            }
+        } else {
+            activeSnoozeMinutes = nil
+            snoozeUnavailableMessage = "Remind later is unavailable for this routine."
         }
 
         let context = ContentSelectionContext(

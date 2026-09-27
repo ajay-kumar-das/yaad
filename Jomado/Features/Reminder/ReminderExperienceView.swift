@@ -183,17 +183,28 @@ struct ReminderExperienceView: View {
             )
             .shadow(color: JomadoTheme.cyan.opacity(0.28), radius: 14, y: 8)
 
-            Button {
-                Task { await model.remindLater() }
-            } label: {
-                Label("Remind me in 10 min", systemImage: "clock.arrow.circlepath")
+            if let snoozeMinutes = model.activeSnoozeMinutes {
+                Button {
+                    Task { await model.remindLater() }
+                } label: {
+                    Label(
+                        "Remind me in \(snoozeMinutes) min",
+                        systemImage: "clock.arrow.circlepath"
+                    )
                     .font(.system(.body, design: .rounded, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 52)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(JomadoTheme.navy)
+                .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else if let message = model.snoozeUnavailableMessage {
+                Label(message, systemImage: "clock.badge.xmark")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(JomadoTheme.secondaryText)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(JomadoTheme.navy)
-            .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             Button("Skip this one") {
                 Task { await model.skip() }

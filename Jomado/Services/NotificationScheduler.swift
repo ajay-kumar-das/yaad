@@ -34,7 +34,7 @@ actor NotificationScheduler {
         )
         let remindLater = UNNotificationAction(
             identifier: NotificationActionIdentifier.remindLater,
-            title: "Remind me in 10 min",
+            title: "Remind me later",
             options: []
         )
         let category = UNNotificationCategory(
