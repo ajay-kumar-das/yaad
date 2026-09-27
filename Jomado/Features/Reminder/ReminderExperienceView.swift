@@ -21,6 +21,7 @@ struct ReminderExperienceView: View {
                         .padding(.top, 14)
 
                     AnimatedMomoView(
+                        mascotID: model.activeMascotID,
                         expression: content.mascot.expression,
                         cue: content.mascot.animationCue,
                         accessibilityLabel: content.mascot.accessibilityLabel

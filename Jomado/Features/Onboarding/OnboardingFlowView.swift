@@ -38,9 +38,9 @@ struct OnboardingFlowView: View {
                     }
                     .id(step)
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
-                    .padding(.horizontal, 20)
-                    .padding(.top, 22)
-                    .padding(.bottom, 32)
+                    .padding(.horizontal, 18)
+                    .padding(.top, step == 1 || step == 5 ? 20 : 12)
+                    .padding(.bottom, 24)
                 }
             }
         }
@@ -89,16 +89,16 @@ struct OnboardingFlowView: View {
                 cue: step == 5 ? .celebrate : (step == 4 ? .gentleBounce : .wave),
                 accessibilityLabel: step == 5 ? "Momo celebrates that setup is complete" : "Momo welcomes you to Jomado"
             )
-            .frame(width: step == 1 || step == 5 ? 224 : 184, height: step == 1 || step == 5 ? 224 : 184)
-            .offset(x: step == 1 ? -34 : (step == 5 ? 0 : 30), y: step == 1 ? 52 : 54)
+            .frame(width: step == 1 || step == 5 ? 224 : 142, height: step == 1 || step == 5 ? 224 : 142)
+            .offset(x: step == 1 ? -34 : (step == 5 ? 0 : 34), y: step == 1 ? 52 : 48)
 
             if step != 5 {
                 JomadoSpeechBubble(text: heroMessage)
-                    .frame(maxWidth: 190)
-                    .offset(x: step == 1 ? 102 : -92, y: 82)
+                    .frame(maxWidth: step == 1 ? 190 : 176)
+                    .offset(x: step == 1 ? 102 : -86, y: step == 1 ? 82 : 70)
             }
         }
-        .frame(height: step == 1 || step == 5 ? 310 : 252)
+        .frame(height: step == 1 || step == 5 ? 310 : 202)
     }
 
     private var heroMessage: String {
@@ -146,7 +146,7 @@ struct OnboardingFlowView: View {
     }
 
     private var profileContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             onboardingTitle("Tell us a bit", accent: "about you!")
             Text("A few quick details help Jomado give you more personalized reminders and support.")
                 .onboardingSubtitle()
@@ -483,7 +483,9 @@ struct OnboardingFlowView: View {
                 Text(title)
                     .font(.system(.caption, design: .rounded, weight: .bold))
                     .foregroundStyle(JomadoTheme.navy)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+                    .allowsTightening(true)
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.square.fill" : "square")
                     .foregroundStyle(selected ? JomadoTheme.cyan : Color.gray.opacity(0.35))

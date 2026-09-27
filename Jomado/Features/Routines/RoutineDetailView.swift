@@ -164,9 +164,11 @@ struct RoutineDetailView: View {
 
     private var companionCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader("Momo & reminder style", symbol: "face.smiling.fill")
-            detailRow("Personality", value: routine.personality.displayName)
+            sectionHeader("Companion & reminder style", symbol: "face.smiling.fill")
+            detailRow("Personalities", value: routine.personalities.sorted { $0.rawValue < $1.rawValue }.map(\.displayName).joined(separator: ", "))
+            detailRow("Mascots", value: routine.mascotIDs.sorted().compactMap { CompanionMascot(rawValue: $0)?.displayName }.joined(separator: ", "))
             detailRow("Intensity", value: routine.intensity.displayName)
+            detailRow("Notification sound", value: routine.notificationSound.displayName)
             detailRow(
                 "Smart snooze",
                 value: routine.smartSnoozeEnabled

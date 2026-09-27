@@ -51,6 +51,23 @@ enum RoutineDeliveryMode: String, Codable, CaseIterable, Hashable, Sendable {
     case companionOnly
 }
 
+enum NotificationSoundChoice: String, Codable, CaseIterable, Hashable, Sendable {
+    case inherit, systemDefault, softChime, brightBell, gentlePop, silent
+
+    var displayName: String {
+        switch self {
+        case .inherit: "Use global default"
+        case .systemDefault: "System default"
+        case .softChime: "Soft chime"
+        case .brightBell: "Bright bell"
+        case .gentlePop: "Gentle pop"
+        case .silent: "Silent"
+        }
+    }
+
+    static var globalChoices: [Self] { allCases.filter { $0 != .inherit } }
+}
+
 struct RoutineTemplate: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let type: RoutineType
@@ -91,6 +108,7 @@ struct RoutineInstance: Identifiable, Codable, Hashable, Sendable {
     var schedule: RoutineSchedule
     var deliveryMode: RoutineDeliveryMode
     var personality: ReminderPersonality
+    var personalityPoolRaw: String? = nil
     var intensity: ReminderIntensity
     var smartSnoozeEnabled: Bool
     var snoozeMinutes: Int
@@ -98,9 +116,21 @@ struct RoutineInstance: Identifiable, Codable, Hashable, Sendable {
     var completionLabel: String
     let createdAt: Date
     var updatedAt: Date
-    var mascotID: String = "momo"
+    var mascotID: String = CompanionMascot.momo.rawValue
+    var notificationSound: NotificationSoundChoice = .inherit
     var goal: String? = nil
     var contentTipEnabled: Bool = true
+
+    var selectedPersonalities: Set<ReminderPersonality> {
+        let raw = personalityPoolRaw ?? personality.rawValue
+        let values = raw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [personality] : values)
+    }
+
+    var selectedMascotIDs: Set<String> {
+        let values = mascotID.split(separator: "|").map(String.init).filter { CompanionMascot(rawValue: $0) != nil }
+        return Set(values.isEmpty ? [CompanionMascot.momo.rawValue] : values)
+    }
 }
 
 struct RoutineDraft: Hashable, Sendable {
@@ -109,6 +139,7 @@ struct RoutineDraft: Hashable, Sendable {
     var schedule: RoutineSchedule
     var deliveryMode: RoutineDeliveryMode
     var personality: ReminderPersonality
+    var personalityPoolRaw: String? = nil
     var intensity: ReminderIntensity
     var smartSnoozeEnabled: Bool
     var snoozeMinutes: Int
@@ -116,9 +147,21 @@ struct RoutineDraft: Hashable, Sendable {
     var symbolName: String? = nil
     var accentHex: String? = nil
     var completionLabel: String? = nil
-    var mascotID: String = "momo"
+    var mascotID: String = CompanionMascot.momo.rawValue
+    var notificationSound: NotificationSoundChoice = .inherit
     var goal: String? = nil
     var contentTipEnabled: Bool = true
+
+    var selectedPersonalities: Set<ReminderPersonality> {
+        let raw = personalityPoolRaw ?? personality.rawValue
+        let values = raw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [personality] : values)
+    }
+
+    var selectedMascotIDs: Set<String> {
+        let values = mascotID.split(separator: "|").map(String.init).filter { CompanionMascot(rawValue: $0) != nil }
+        return Set(values.isEmpty ? [CompanionMascot.momo.rawValue] : values)
+    }
 
     func materialize(id: UUID = UUID(), now: Date = .now) -> RoutineInstance {
         RoutineInstance(
@@ -132,6 +175,7 @@ struct RoutineDraft: Hashable, Sendable {
             schedule: schedule,
             deliveryMode: deliveryMode,
             personality: personality,
+            personalityPoolRaw: personalityPoolRaw,
             intensity: intensity,
             smartSnoozeEnabled: smartSnoozeEnabled,
             snoozeMinutes: snoozeMinutes,
@@ -140,6 +184,7 @@ struct RoutineDraft: Hashable, Sendable {
             createdAt: now,
             updatedAt: now,
             mascotID: mascotID,
+            notificationSound: notificationSound,
             goal: goal,
             contentTipEnabled: contentTipEnabled
         )

@@ -15,6 +15,7 @@ final class JomadoAppModel: ObservableObject {
     @Published private(set) var presentation: ReminderPresentation
     @Published private(set) var activeSnoozeMinutes: Int?
     @Published private(set) var snoozeUnavailableMessage: String?
+    @Published private(set) var activeMascotID = CompanionMascot.momo.rawValue
     @Published var isReminderPresented = false
     @Published var selectedTab: JomadoTab = .today
     @Published private(set) var systemMessage: String?
@@ -118,15 +119,13 @@ final class JomadoAppModel: ObservableObject {
     func createStarterRoutines(for types: Set<RoutineType>) async {
         guard let routineCoordinator else { return }
 
-        let personality = ReminderPersonality(
-            rawValue: UserDefaults.standard.string(forKey: "jomado.defaultPersonality") ?? ""
-        ) ?? .playful
+        let personalities = Self.decodePersonalities(UserDefaults.standard.string(forKey: "jomado.defaultPersonality") ?? "")
         let intensity = ReminderIntensity(
             rawValue: UserDefaults.standard.string(forKey: "jomado.defaultIntensity") ?? ""
         ) ?? .balanced
         let drafts = types
             .sorted { $0.rawValue < $1.rawValue }
-            .compactMap { Self.starterDraft(for: $0, personality: personality, intensity: intensity) }
+            .compactMap { Self.starterDraft(for: $0, personalities: personalities, intensity: intensity) }
 
         guard !drafts.isEmpty else { return }
 
@@ -536,14 +535,16 @@ final class JomadoAppModel: ObservableObject {
             snoozeUnavailableMessage = "Remind later is unavailable for this routine."
         }
 
+        let occurrenceSlot = occurrence.dueDate.formatted(.dateTime.year().month().day().hour().minute())
+        activeMascotID = storedRoutine?.mascotID(for: occurrenceSlot) ?? CompanionMascot.momo.rawValue
         let context = ContentSelectionContext(
             routineID: occurrence.routineID,
             routineType: occurrence.routineType,
             stage: stage,
-            personality: storedRoutine?.personality ?? .playful,
+            personality: storedRoutine?.personality(for: occurrenceSlot) ?? .playful,
             intensity: storedRoutine?.intensity ?? .balanced,
             locale: "en",
-            occurrenceSlot: occurrence.dueDate.formatted(.dateTime.year().month().day().hour().minute()),
+            occurrenceSlot: occurrenceSlot,
             date: now
         )
         let selectedContent = await contentRepository.select(context: context, exposures: exposures)
@@ -573,9 +574,10 @@ final class JomadoAppModel: ObservableObject {
 
     private static func starterDraft(
         for type: RoutineType,
-        personality: ReminderPersonality,
+        personalities: Set<ReminderPersonality>,
         intensity: ReminderIntensity
     ) -> RoutineDraft? {
+        let personality = personalities.sorted { $0.rawValue < $1.rawValue }.first ?? .playful
         let daily = Set(Weekday.allCases)
         let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
         let schedule: RoutineSchedule
@@ -627,12 +629,18 @@ final class JomadoAppModel: ObservableObject {
             schedule: schedule,
             deliveryMode: .companionOnly,
             personality: personality,
+            personalityPoolRaw: personalities.sorted { $0.rawValue < $1.rawValue }.map(\.rawValue).joined(separator: "|"),
             intensity: intensity,
             smartSnoozeEnabled: true,
             snoozeMinutes: 10,
             maxSnoozes: 3,
             goal: type == .hydration ? "Build a steady hydration habit" : nil
         )
+    }
+
+    private static func decodePersonalities(_ raw: String) -> Set<ReminderPersonality> {
+        let values = raw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [.playful] : values)
     }
 
     private static func makeDemoOccurrence(now: Date) -> ReminderOccurrence {

@@ -1,15 +1,19 @@
 import SwiftUI
 
 struct AnimatedMomoView: View {
+    let mascotID: String
     let expression: MascotExpression
     let cue: MascotAnimationCue
     let accessibilityLabel: String
+    init(mascotID: String = CompanionMascot.momo.rawValue, expression: MascotExpression, cue: MascotAnimationCue, accessibilityLabel: String) {
+        self.mascotID = mascotID; self.expression = expression; self.cue = cue; self.accessibilityLabel = accessibilityLabel
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isAnimating = false
 
     var body: some View {
-        MomoArtwork(expression: expression, accessibilityLabel: accessibilityLabel)
+        MomoArtwork(mascotID: mascotID, expression: expression, accessibilityLabel: accessibilityLabel)
             .scaleEffect(scale)
             .rotationEffect(.degrees(rotation))
             .offset(y: verticalOffset)

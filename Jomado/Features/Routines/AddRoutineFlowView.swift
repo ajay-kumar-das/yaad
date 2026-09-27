@@ -20,7 +20,9 @@ struct AddRoutineFlowView: View {
     @State private var completionLabel = RoutineType.hydration.defaultCompletionLabel
     @State private var selectedSymbol = RoutineType.hydration.symbolName
     @State private var selectedAccent = RoutineType.hydration.accentHex
-    @State private var personality: ReminderPersonality = .playful
+    @State private var selectedPersonalities: Set<ReminderPersonality> = [.playful]
+    @State private var selectedMascots: Set<String> = [CompanionMascot.momo.rawValue]
+    @State private var notificationSound: NotificationSoundChoice = .inherit
     @State private var intensity: ReminderIntensity = .balanced
     @State private var smartSnoozeEnabled = true
     @State private var snoozeMinutes = 10
@@ -54,7 +56,9 @@ struct AddRoutineFlowView: View {
         _completionLabel = State(initialValue: routine.completionLabel)
         _selectedSymbol = State(initialValue: routine.symbolName)
         _selectedAccent = State(initialValue: routine.accentHex)
-        _personality = State(initialValue: routine.personality)
+        _selectedPersonalities = State(initialValue: routine.selectedPersonalities)
+        _selectedMascots = State(initialValue: routine.selectedMascotIDs)
+        _notificationSound = State(initialValue: routine.notificationSound)
         _intensity = State(initialValue: routine.intensity)
         _smartSnoozeEnabled = State(initialValue: routine.smartSnoozeEnabled)
         _snoozeMinutes = State(initialValue: routine.snoozeMinutes)
@@ -93,7 +97,7 @@ struct AddRoutineFlowView: View {
         .preferredColorScheme(.light)
         .onAppear {
             guard !isEditing else { return }
-            personality = ReminderPersonality(rawValue: defaultPersonalityRaw) ?? .playful
+            selectedPersonalities = Self.decodePersonalities(defaultPersonalityRaw)
             intensity = ReminderIntensity(rawValue: defaultIntensityRaw) ?? .balanced
             applyDefaults(for: selectedType)
         }
@@ -157,6 +161,7 @@ struct AddRoutineFlowView: View {
         .frame(height: 278)
     }
 
+    private var previewPersonality: ReminderPersonality { selectedPersonalities.sorted { $0.rawValue < $1.rawValue }.first ?? .playful }
     private var heroExpression: MascotExpression {
         switch page {
         case 0: .hello
@@ -492,36 +497,33 @@ struct AddRoutineFlowView: View {
 
     private var personalityCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader("Companion personality", subtitle: "Momo can sound different for each routine.")
-
-            HStack(spacing: 12) {
-                MomoArtwork(expression: personality == .dramatic ? .dramatic : (personality == .strict ? .focused : .hello))
-                    .frame(width: 70, height: 70)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Personality", selection: $personality) {
-                        ForEach(ReminderPersonality.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
+            sectionHeader("Companion mix", subtitle: "Choose one or more personalities and mascot styles. Jomado rotates them predictably across reminders.")
+            Text("Personalities").font(.system(.subheadline, design: .rounded, weight: .heavy)).foregroundStyle(JomadoTheme.navy)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 8)], spacing: 8) {
+                ForEach(ReminderPersonality.allCases, id: \.self) { option in
+                    multiSelectChip(title: option.displayName, selected: selectedPersonalities.contains(option)) {
+                        if selectedPersonalities.contains(option) { if selectedPersonalities.count > 1 { selectedPersonalities.remove(option) } } else { selectedPersonalities.insert(option) }
                     }
-                    .pickerStyle(.menu)
-                    .tint(JomadoTheme.navy)
-
-                    Text("Mascot: Momo")
-                        .font(.system(.caption, design: .rounded, weight: .semibold))
-                        .foregroundStyle(JomadoTheme.secondaryText)
-                }
-                Spacer()
-            }
-
-            Picker("Intensity", selection: $intensity) {
-                ForEach(ReminderIntensity.allCases, id: \.self) { option in
-                    Text(option.displayName).tag(option)
                 }
             }
-            .pickerStyle(.segmented)
-        }
-        .jomadoCard()
+            Divider()
+            Text("Mascots").font(.system(.subheadline, design: .rounded, weight: .heavy)).foregroundStyle(JomadoTheme.navy)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                ForEach(CompanionMascot.allCases, id: \.self) { mascot in
+                    Button {
+                        if selectedMascots.contains(mascot.rawValue) { if selectedMascots.count > 1 { selectedMascots.remove(mascot.rawValue) } } else { selectedMascots.insert(mascot.rawValue) }
+                    } label: {
+                        VStack(spacing: 6) {
+                            MomoArtwork(mascotID: mascot.rawValue, expression: previewPersonality == .dramatic ? .dramatic : (previewPersonality == .strict ? .focused : .hello)).frame(width: 54, height: 54)
+                            Text(mascot.displayName).font(.system(.caption2, design: .rounded, weight: .bold)).foregroundStyle(JomadoTheme.navy).lineLimit(1).minimumScaleFactor(0.68)
+                            Image(systemName: selectedMascots.contains(mascot.rawValue) ? "checkmark.circle.fill" : "circle").foregroundStyle(selectedMascots.contains(mascot.rawValue) ? JomadoTheme.cyan : Color.gray.opacity(0.35))
+                        }.frame(maxWidth: .infinity, minHeight: 112).background(selectedMascots.contains(mascot.rawValue) ? JomadoTheme.sky.opacity(0.7) : Color.white, in: RoundedRectangle(cornerRadius: 16))
+                    }.buttonStyle(.plain)
+                }
+            }
+            Picker("Intensity", selection: $intensity) { ForEach(ReminderIntensity.allCases, id: \.self) { Text($0.displayName).tag($0) } }.pickerStyle(.segmented)
+            Picker("Notification sound", selection: $notificationSound) { ForEach(NotificationSoundChoice.allCases, id: \.self) { Text($0.displayName).tag($0) } }.pickerStyle(.menu).tint(JomadoTheme.navy)
+        }.jomadoCard()
     }
 
     private var snoozeCard: some View {
@@ -628,7 +630,10 @@ struct AddRoutineFlowView: View {
     private var reviewCustomizationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Companion & completion", subtitle: "How this routine behaves.")
-            reviewLine(symbol: "face.smiling.fill", title: "Personality", value: "\(personality.displayName) • \(intensity.displayName)")
+            reviewLine(symbol: "face.smiling.fill", title: "Personalities", value: selectedPersonalities.sorted { $0.rawValue < $1.rawValue }.map(\.displayName).joined(separator: ", "))
+            reviewLine(symbol: "paintpalette.fill", title: "Mascots", value: selectedMascots.sorted().compactMap { CompanionMascot(rawValue: $0)?.displayName }.joined(separator: ", "))
+            reviewLine(symbol: "speaker.wave.2.fill", title: "Notification sound", value: notificationSound.displayName)
+            reviewLine(symbol: "slider.horizontal.3", title: "Intensity", value: intensity.displayName)
             reviewLine(symbol: "checkmark.circle.fill", title: "Complete with", value: completionLabel)
             reviewLine(
                 symbol: "clock.arrow.circlepath",
@@ -761,6 +766,18 @@ struct AddRoutineFlowView: View {
         }
     }
 
+    private func multiSelectChip(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) { Image(systemName: selected ? "checkmark.circle.fill" : "circle"); Text(title).lineLimit(1).minimumScaleFactor(0.75) }
+                .font(.system(.caption, design: .rounded, weight: .bold)).foregroundStyle(selected ? JomadoTheme.blue : JomadoTheme.navy)
+                .frame(maxWidth: .infinity, minHeight: 40).padding(.horizontal, 8).background(selected ? JomadoTheme.sky.opacity(0.7) : Color.white, in: Capsule())
+        }.buttonStyle(.plain)
+    }
+    private static func decodePersonalities(_ raw: String) -> Set<ReminderPersonality> {
+        let values = raw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [.playful] : values)
+    }
+
     private func settingValueRow(_ title: String, value: String) -> some View {
         HStack {
             Text(title)
@@ -856,6 +873,8 @@ struct AddRoutineFlowView: View {
             validationMessage = "Add a completion label so the action is explicit."
             return false
         }
+        guard !selectedPersonalities.isEmpty else { validationMessage = "Choose at least one companion personality."; return false }
+        guard !selectedMascots.isEmpty else { validationMessage = "Choose at least one mascot."; return false }
         validationMessage = nil
         return true
     }
@@ -882,7 +901,8 @@ struct AddRoutineFlowView: View {
             name: routineName.trimmingCharacters(in: .whitespacesAndNewlines),
             schedule: schedule,
             deliveryMode: usesAlarm ? .alarmAndCompanion : .companionOnly,
-            personality: personality,
+            personality: selectedPersonalities.sorted { $0.rawValue < $1.rawValue }.first ?? .playful,
+            personalityPoolRaw: selectedPersonalities.sorted { $0.rawValue < $1.rawValue }.map(\.rawValue).joined(separator: "|"),
             intensity: intensity,
             smartSnoozeEnabled: smartSnoozeEnabled,
             snoozeMinutes: snoozeMinutes,
@@ -890,7 +910,8 @@ struct AddRoutineFlowView: View {
             symbolName: selectedSymbol,
             accentHex: selectedAccent,
             completionLabel: completionLabel.trimmingCharacters(in: .whitespacesAndNewlines),
-            mascotID: "momo",
+            mascotID: selectedMascots.sorted().joined(separator: "|"),
+            notificationSound: notificationSound,
             goal: goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : goal.trimmingCharacters(in: .whitespacesAndNewlines),
             contentTipEnabled: contentTipEnabled
         )

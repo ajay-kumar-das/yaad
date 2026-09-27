@@ -19,6 +19,7 @@ final class RoutineEntity {
     var deliveryModeRaw: String
     var personalityRaw: String
     var intensityRaw: String
+    var notificationSoundRaw: String = NotificationSoundChoice.inherit.rawValue
     var smartSnoozeEnabled: Bool
     var snoozeMinutes: Int
     var maxSnoozes: Int
@@ -40,8 +41,9 @@ final class RoutineEntity {
         symbolName = instance.symbolName
         accentHex = instance.accentHex
         deliveryModeRaw = instance.deliveryMode.rawValue
-        personalityRaw = instance.personality.rawValue
+        personalityRaw = Self.encodePersonalities(instance.selectedPersonalities)
         intensityRaw = instance.intensity.rawValue
+        notificationSoundRaw = instance.notificationSound.rawValue
         smartSnoozeEnabled = instance.smartSnoozeEnabled
         snoozeMinutes = instance.snoozeMinutes
         maxSnoozes = instance.maxSnoozes
@@ -49,7 +51,7 @@ final class RoutineEntity {
         createdAt = instance.createdAt
         updatedAt = instance.updatedAt
         lastReconciledAt = nil
-        mascotID = instance.mascotID
+        mascotID = Self.encodeMascots(instance.selectedMascotIDs)
         goal = instance.goal
         contentTipEnabled = instance.contentTipEnabled
         archivedAt = nil
@@ -79,13 +81,14 @@ final class RoutineEntity {
         symbolName = draft.symbolName ?? draft.type.symbolName
         accentHex = draft.accentHex ?? draft.type.accentHex
         deliveryModeRaw = draft.deliveryMode.rawValue
-        personalityRaw = draft.personality.rawValue
+        personalityRaw = Self.encodePersonalities(draft.selectedPersonalities)
         intensityRaw = draft.intensity.rawValue
+        notificationSoundRaw = draft.notificationSound.rawValue
         smartSnoozeEnabled = draft.smartSnoozeEnabled
         snoozeMinutes = draft.snoozeMinutes
         maxSnoozes = draft.maxSnoozes
         completionLabel = draft.completionLabel ?? draft.type.defaultCompletionLabel
-        mascotID = draft.mascotID
+        mascotID = Self.encodeMascots(draft.selectedMascotIDs)
         goal = draft.goal
         contentTipEnabled = draft.contentTipEnabled
         updatedAt = now
@@ -109,9 +112,26 @@ final class RoutineEntity {
     }
 
     var routineType: RoutineType { RoutineType(rawValue: typeRaw) ?? .generic }
-    var personality: ReminderPersonality { ReminderPersonality(rawValue: personalityRaw) ?? .playful }
+    var personalities: Set<ReminderPersonality> {
+        let values = personalityRaw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [.playful] : values)
+    }
+    var personality: ReminderPersonality { personalities.sorted { $0.rawValue < $1.rawValue }.first ?? .playful }
+    var mascotIDs: Set<String> {
+        let values = mascotID.split(separator: "|").map(String.init).filter { CompanionMascot(rawValue: $0) != nil }
+        return Set(values.isEmpty ? [CompanionMascot.momo.rawValue] : values)
+    }
+    var notificationSound: NotificationSoundChoice { NotificationSoundChoice(rawValue: notificationSoundRaw) ?? .inherit }
     var intensity: ReminderIntensity { ReminderIntensity(rawValue: intensityRaw) ?? .balanced }
     var deliveryMode: RoutineDeliveryMode { RoutineDeliveryMode(rawValue: deliveryModeRaw) ?? .companionOnly }
+    func personality(for occurrenceKey: String) -> ReminderPersonality {
+        let values = personalities.sorted { $0.rawValue < $1.rawValue }
+        return values[Self.stableIndex(seed: occurrenceKey, count: values.count)]
+    }
+    func mascotID(for occurrenceKey: String) -> String {
+        let values = mascotIDs.sorted()
+        return values[Self.stableIndex(seed: occurrenceKey + ".mascot", count: values.count)]
+    }
 
     var schedule: RoutineSchedule {
         let weekdays = Self.weekdays(from: weekdayMask)
@@ -143,6 +163,7 @@ final class RoutineEntity {
             schedule: schedule,
             deliveryMode: deliveryMode,
             personality: personality,
+            personalityPoolRaw: personalityRaw,
             intensity: intensity,
             smartSnoozeEnabled: smartSnoozeEnabled,
             snoozeMinutes: snoozeMinutes,
@@ -151,9 +172,25 @@ final class RoutineEntity {
             createdAt: createdAt,
             updatedAt: updatedAt,
             mascotID: mascotID,
+            notificationSound: notificationSound,
             goal: goal,
             contentTipEnabled: contentTipEnabled
         )
+    }
+
+    private static func encodePersonalities(_ values: Set<ReminderPersonality>) -> String {
+        let selected = values.isEmpty ? [ReminderPersonality.playful] : Array(values)
+        return selected.sorted { $0.rawValue < $1.rawValue }.map(\.rawValue).joined(separator: "|")
+    }
+    private static func encodeMascots(_ values: Set<String>) -> String {
+        let selected = values.filter { CompanionMascot(rawValue: $0) != nil }.sorted()
+        return (selected.isEmpty ? [CompanionMascot.momo.rawValue] : selected).joined(separator: "|")
+    }
+    private static func stableIndex(seed: String, count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        var value: UInt64 = 14_695_981_039_346_656_037
+        for byte in seed.utf8 { value ^= UInt64(byte); value &*= 1_099_511_628_211 }
+        return Int(value % UInt64(count))
     }
 
     private static func localTime(from minutes: Int) -> LocalTime {

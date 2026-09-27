@@ -94,6 +94,12 @@ public enum ReminderIntensity: String, Codable, CaseIterable, Hashable, Sendable
     case firm
 }
 
+public enum CompanionMascot: String, Codable, CaseIterable, Hashable, Sendable {
+    case momo
+    case momoMint
+    case momoViolet
+}
+
 public enum ReminderUrgencyStage: String, Codable, CaseIterable, Hashable, Sendable {
     case normal
     case lightOverdue
@@ -226,4 +232,14 @@ public extension ReminderPersonality {
 
 public extension ReminderIntensity {
     var displayName: String { rawValue.capitalized }
+}
+
+public extension CompanionMascot {
+    var displayName: String {
+        switch self {
+        case .momo: "Momo Blue"
+        case .momoMint: "Momo Mint"
+        case .momoViolet: "Momo Violet"
+        }
+    }
 }

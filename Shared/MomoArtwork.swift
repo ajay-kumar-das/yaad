@@ -1,15 +1,29 @@
 import SwiftUI
 
 public struct MomoArtwork: View {
+    private let mascot: CompanionMascot
     private let expression: MascotExpression
     private let accessibilityLabel: String
 
     public init(
+        mascotID: String = CompanionMascot.momo.rawValue,
         expression: MascotExpression,
         accessibilityLabel: String? = nil
     ) {
+        self.mascot = CompanionMascot(rawValue: mascotID) ?? .momo
         self.expression = expression
-        self.accessibilityLabel = accessibilityLabel ?? expression.accessibilityDescription
+        self.accessibilityLabel = accessibilityLabel ?? "\(self.mascot.displayName). \(expression.accessibilityDescription)"
+    }
+
+    private var palette: (top: Color, middle: Color, bottom: Color, limb: Color, shadow: Color) {
+        switch mascot {
+        case .momo:
+            (Color(jomadoHex: "42DBFF"), Color(jomadoHex: "13BDEB"), Color(jomadoHex: "0875D8"), Color(jomadoHex: "0C8FE9"), Color(jomadoHex: "1597F4"))
+        case .momoMint:
+            (Color(jomadoHex: "78F0D4"), Color(jomadoHex: "2BC9C3"), Color(jomadoHex: "159A91"), Color(jomadoHex: "198F88"), Color(jomadoHex: "2BC9C3"))
+        case .momoViolet:
+            (Color(jomadoHex: "C5AEFF"), Color(jomadoHex: "8F68E8"), Color(jomadoHex: "6556D8"), Color(jomadoHex: "6D57C9"), Color(jomadoHex: "8F68E8"))
+        }
     }
 
     public var body: some View {
@@ -25,11 +39,7 @@ public struct MomoArtwork: View {
                 DropletShape()
                     .fill(
                         LinearGradient(
-                            colors: [
-                                Color(jomadoHex: "42DBFF"),
-                                Color(jomadoHex: "13BDEB"),
-                                Color(jomadoHex: "0875D8")
-                            ],
+                            colors: [palette.top, palette.middle, palette.bottom],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -40,7 +50,7 @@ public struct MomoArtwork: View {
                     }
                     .frame(width: size * 0.66, height: size * 0.78)
                     .position(x: size * 0.5, y: size * 0.47)
-                    .shadow(color: Color(jomadoHex: "1597F4").opacity(0.28), radius: size * 0.055, y: size * 0.035)
+                    .shadow(color: palette.shadow.opacity(0.28), radius: size * 0.055, y: size * 0.035)
 
                 Circle()
                     .fill(.white.opacity(0.78))
@@ -62,7 +72,7 @@ public struct MomoArtwork: View {
         Capsule()
             .fill(
                 LinearGradient(
-                    colors: [Color(jomadoHex: "27CDF6"), Color(jomadoHex: "0A89EA")],
+                    colors: [palette.top, palette.bottom],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -74,7 +84,7 @@ public struct MomoArtwork: View {
 
     private func foot(size: CGFloat, leading: Bool) -> some View {
         Capsule()
-            .fill(Color(jomadoHex: "0C8FE9"))
+            .fill(palette.limb)
             .frame(width: size * 0.18, height: size * 0.12)
             .rotationEffect(.degrees(leading ? -12 : 12))
             .position(x: size * (leading ? 0.405 : 0.595), y: size * 0.845)

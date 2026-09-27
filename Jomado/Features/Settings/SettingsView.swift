@@ -154,13 +154,18 @@ private struct ReminderPreferencesView: View {
     @AppStorage("jomado.language") private var language = "en"
     @AppStorage("jomado.emojiLevel") private var emojiLevel = "balanced"
     @AppStorage("jomado.messageLength") private var messageLength = "standard"
-    @AppStorage("jomado.soundEnabled") private var soundEnabled = true
-
-    private var personality: Binding<ReminderPersonality> {
-        Binding(
-            get: { ReminderPersonality(rawValue: personalityRaw) ?? .playful },
-            set: { personalityRaw = $0.rawValue }
-        )
+    @AppStorage("jomado.soundEnabled") private var legacySoundEnabled = true
+    @AppStorage("jomado.defaultNotificationSound") private var defaultNotificationSoundRaw = NotificationSoundChoice.systemDefault.rawValue
+    private var selectedPersonalities: Set<ReminderPersonality> {
+        let values = personalityRaw.split(separator: "|").compactMap { ReminderPersonality(rawValue: String($0)) }
+        return Set(values.isEmpty ? [.playful] : values)
+    }
+    private var previewPersonality: ReminderPersonality { selectedPersonalities.sorted { $0.rawValue < $1.rawValue }.first ?? .playful }
+    private var defaultNotificationSound: Binding<NotificationSoundChoice> {
+        Binding(get: {
+            if let value = NotificationSoundChoice(rawValue: defaultNotificationSoundRaw), value != .inherit { return value }
+            return legacySoundEnabled ? .systemDefault : .silent
+        }, set: { defaultNotificationSoundRaw = $0.rawValue; legacySoundEnabled = $0 != .silent })
     }
 
     private var intensity: Binding<ReminderIntensity> {
@@ -181,12 +186,16 @@ private struct ReminderPreferencesView: View {
                     .foregroundStyle(JomadoTheme.secondaryText)
 
                 settingCard(title: "Tone") {
-                    Picker("Personality", selection: personality) {
+                    Text("Choose one or more default personalities for new routines.").font(.system(.caption, design: .rounded)).foregroundStyle(JomadoTheme.secondaryText)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 8)], spacing: 8) {
                         ForEach(ReminderPersonality.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
+                            Button { togglePersonality(option) } label: {
+                                HStack(spacing: 6) { Image(systemName: selectedPersonalities.contains(option) ? "checkmark.circle.fill" : "circle"); Text(option.displayName).lineLimit(1).minimumScaleFactor(0.75) }
+                                    .font(.system(.caption, design: .rounded, weight: .bold)).foregroundStyle(selectedPersonalities.contains(option) ? JomadoTheme.blue : JomadoTheme.navy)
+                                    .frame(maxWidth: .infinity, minHeight: 40).background(selectedPersonalities.contains(option) ? JomadoTheme.sky.opacity(0.7) : Color.white, in: Capsule())
+                            }.buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.menu)
                 }
 
                 settingCard(title: "Strictness") {
@@ -211,7 +220,7 @@ private struct ReminderPreferencesView: View {
                         Text("Short").tag("short")
                         Text("Standard").tag("standard")
                     }
-                    Toggle("Companion notification sound", isOn: $soundEnabled)
+                    Picker("Default notification sound", selection: defaultNotificationSound) { ForEach(NotificationSoundChoice.globalChoices, id: \.self) { Text($0.displayName).tag($0) } }
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -250,8 +259,14 @@ private struct ReminderPreferencesView: View {
         .jomadoCard()
     }
 
+    private func togglePersonality(_ option: ReminderPersonality) {
+        var values = selectedPersonalities
+        if values.contains(option) { guard values.count > 1 else { return }; values.remove(option) } else { values.insert(option) }
+        personalityRaw = values.sorted { $0.rawValue < $1.rawValue }.map(\.rawValue).joined(separator: "|")
+    }
+
     private var previewCopy: String {
-        switch (personality.wrappedValue, intensity.wrappedValue) {
+        switch (previewPersonality, intensity.wrappedValue) {
         case (.strict, .firm): "Water break due. Drink water now."
         case (.dramatic, _): "Momo has declared a hydration emergency. 💧"
         case (.cute, .soft): "Tiny water mission for you 💧"
@@ -264,7 +279,7 @@ private struct ReminderPreferencesView: View {
     }
 
     private var previewExpression: MascotExpression {
-        switch personality.wrappedValue {
+        switch previewPersonality {
         case .strict, .focused: .focused
         case .dramatic: .dramatic
         case .cheeky: .cheeky
