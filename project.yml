@@ -1,35 +1,102 @@
-name: yaad
+name: Jomado
+
 options:
-  bundleIdPrefix: com.ajay
+  bundleIdPrefix: com.ajaydas
   deploymentTarget:
     iOS: "26.0"
-packages:
-  JomadoCore:
-    path: JomadoCore
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+
 targets:
   Jomado:
     type: application
     platform: iOS
     deploymentTarget: "26.0"
+
     sources:
-      - path: JomadoApp
+      - path: Jomado
+      - path: Shared
       - path: Resources
+
     entitlements:
       path: Config/Jomado.entitlements
+
     dependencies:
-      - package: JomadoCore
+      - target: JomadoLiveActivity
+        embed: true
+
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ajaydas.jomado
-        INFOPLIST_FILE: Config/Info.plist
+        INFOPLIST_FILE: Config/Jomado-Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        SWIFT_VERSION: 6.0
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+
+  JomadoLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+
+    sources:
+      - path: JomadoLiveActivity
+      - path: Shared
+
+    entitlements:
+      path: Config/JomadoLiveActivity.entitlements
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ajaydas.jomado.liveactivity
+        INFOPLIST_FILE: Config/JomadoLiveActivity-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
+  JomadoTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+
+    sources:
+      - path: Tests/JomadoTests
+
+    dependencies:
+      - target: Jomado
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ajaydas.jomado.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "1"
+
 schemes:
   Jomado:
     build:
       targets:
         Jomado: all
+
     run:
       config: Debug
+
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - JomadoTests
+
+    profile:
+      config: Release
+
+    analyze:
+      config: Debug
+
+    archive:
+      config: Release
