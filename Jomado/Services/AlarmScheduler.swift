@@ -21,14 +21,10 @@ enum JomadoAlarmAuthorizationStatus: Sendable, Equatable {
 final class AlarmScheduler {
     static let shared = AlarmScheduler()
 
-    private let manager: AlarmManager
-
-    init(manager: AlarmManager = .shared) {
-        self.manager = manager
-    }
+    private init() {}
 
     func authorizationStatus() -> JomadoAlarmAuthorizationStatus {
-        switch manager.authorizationState {
+        switch AlarmManager.shared.authorizationState {
         case .notDetermined:
             return .notDetermined
         case .authorized:
@@ -42,7 +38,7 @@ final class AlarmScheduler {
 
     @discardableResult
     func requestAuthorization() async throws -> Bool {
-        switch try await manager.requestAuthorization() {
+        switch try await AlarmManager.shared.requestAuthorization() {
         case .authorized:
             return true
         case .notDetermined, .denied:
@@ -53,7 +49,7 @@ final class AlarmScheduler {
     }
 
     func scheduledAlarmIDs() -> Set<UUID> {
-        guard let alarms = try? manager.alarms else {
+        guard let alarms = try? AlarmManager.shared.alarms else {
             return []
         }
         return Set(alarms.map(\.id))
@@ -108,16 +104,19 @@ final class AlarmScheduler {
             sound: .default
         )
 
-        _ = try await manager.schedule(id: occurrence.id, configuration: configuration)
+        _ = try await AlarmManager.shared.schedule(
+            id: occurrence.id,
+            configuration: configuration
+        )
     }
 
     func cancel(id: UUID) {
-        try? manager.cancel(id: id)
+        try? AlarmManager.shared.cancel(id: id)
     }
 
     func cancel(ids: some Sequence<UUID>) {
         for id in ids {
-            try? manager.cancel(id: id)
+            try? AlarmManager.shared.cancel(id: id)
         }
     }
 }
