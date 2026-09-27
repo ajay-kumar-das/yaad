@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jomado.app/schemas/content-pack-v1.json",
+  "title": "Jomado content pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "pack", "items"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "locale", "minimumAppVersion", "source", "generatedAt"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "version": { "type": "integer", "minimum": 1 },
+        "locale": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "minimumAppVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "source": { "enum": ["bundled", "downloaded"] },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "routineType",
+        "stage",
+        "personality",
+        "intensity",
+        "locale",
+        "variants",
+        "mascot",
+        "tags",
+        "dayparts",
+        "cooldownMinutes",
+        "semanticFamily",
+        "priority",
+        "enabled",
+        "safety"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$",
+          "maxLength": 96
+        },
+        "routineType": {
+          "enum": ["hydration", "exercise", "stretching", "eyeCare", "posture", "breathing", "meditation", "yoga", "sleep", "custom", "generic"]
+        },
+        "stage": { "enum": ["normal", "lightOverdue", "mediumOverdue", "redZone", "completed"] },
+        "personality": { "enum": ["gentle", "cute", "playful", "cheeky", "charming", "dramatic", "strict", "focused"] },
+        "intensity": { "enum": ["soft", "balanced", "firm"] },
+        "locale": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "variants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["notification", "liveActivity", "inApp"],
+          "properties": {
+            "notification": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "body"],
+              "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 32 },
+                "body": { "type": "string", "minLength": 1, "maxLength": 90 }
+              }
+            },
+            "liveActivity": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["headline", "body", "compactStatus"],
+              "properties": {
+                "headline": { "type": "string", "minLength": 1, "maxLength": 26 },
+                "body": { "type": "string", "minLength": 1, "maxLength": 72 },
+                "compactStatus": { "type": "string", "minLength": 1, "maxLength": 10 }
+              }
+            },
+            "inApp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["eyebrow", "headline", "body", "completionLabel"],
+              "properties": {
+                "eyebrow": { "type": "string", "minLength": 1, "maxLength": 24 },
+                "headline": { "type": "string", "minLength": 1, "maxLength": 36 },
+                "body": { "type": "string", "minLength": 1, "maxLength": 160 },
+                "tip": { "type": "string", "maxLength": 120 },
+                "completionLabel": { "type": "string", "minLength": 1, "maxLength": 32 }
+              }
+            }
+          }
+        },
+        "mascot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["character", "expression", "pose", "animationCue", "accessibilityLabel"],
+          "properties": {
+            "character": { "const": "momo" },
+            "expression": { "enum": ["idle", "hello", "waiting", "hopeful", "pouty", "concerned", "urgent", "sleepy", "focused", "proud", "celebrating", "cheeky", "dramatic"] },
+            "pose": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$", "maxLength": 32 },
+            "prop": { "type": ["string", "null"], "maxLength": 32 },
+            "animationCue": { "enum": ["none", "idleFloat", "gentleBounce", "wave", "blink", "pout", "concernedPulse", "dramaticWobble", "breathe", "celebrate"] },
+            "accessibilityLabel": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 32 }
+        },
+        "dayparts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["any", "morning", "afternoon", "evening", "night"] }
+        },
+        "cooldownMinutes": { "type": "integer", "minimum": 0, "maximum": 43200 },
+        "semanticFamily": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 48 },
+        "priority": { "type": "integer", "minimum": -100, "maximum": 100 },
+        "enabled": { "type": "boolean" },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["medicalClaimReviewed", "ageSafe", "reviewer", "reviewedAt"],
+          "properties": {
+            "medicalClaimReviewed": { "const": true },
+            "ageSafe": { "const": true },
+            "reviewer": { "type": "string", "minLength": 2, "maxLength": 64 },
+            "reviewedAt": { "type": "string", "format": "date" }
+          }
+        }
+      }
+    }
+  }
+}

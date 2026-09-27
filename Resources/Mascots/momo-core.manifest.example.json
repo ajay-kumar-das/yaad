@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "momo-core",
+    "version": 1,
+    "minimumAppVersion": "0.1.0",
+    "sourceArtboard": {
+      "width": 1024,
+      "height": 1024
+    }
+  },
+  "assets": [
+    {
+      "id": "momo.hopeful.wave.core",
+      "character": "momo",
+      "expression": "hopeful",
+      "pose": "wave",
+      "prop": null,
+      "animationCue": "gentleBounce",
+      "surfaces": ["inApp", "liveActivity"],
+      "files": {
+        "vector": "momo-hopeful-wave-core.pdf",
+        "twoX": "momo-hopeful-wave-core@2x.png",
+        "threeX": "momo-hopeful-wave-core@3x.png"
+      },
+      "pixelSize": {
+        "twoX": 176,
+        "threeX": 264
+      },
+      "accessibilityLabel": "Momo waves with a hopeful smile"
+    }
+  ]
+}
+

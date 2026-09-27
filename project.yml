@@ -1,0 +1,96 @@
+name: Jomado
+
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: "26.0"
+  groupSortPosition: top
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    CLANG_ENABLE_MODULES: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  Jomado:
+    type: application
+    platform: iOS
+    sources:
+      - path: Jomado
+      - path: Shared
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/Content
+        type: folder
+        buildPhase: resources
+      - path: Resources/Mascots
+        type: folder
+        buildPhase: resources
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jomado.app
+        PRODUCT_NAME: Jomado
+        INFOPLIST_FILE: Config/Jomado-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Jomado.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: JomadoLiveActivity
+        embed: true
+
+  JomadoLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: JomadoLiveActivity
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jomado.app.liveactivity
+        PRODUCT_NAME: JomadoLiveActivity
+        INFOPLIST_FILE: Config/JomadoLiveActivity-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/JomadoLiveActivity.entitlements
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  JomadoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/JomadoTests
+    dependencies:
+      - target: Jomado
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jomado.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Jomado:
+    build:
+      targets:
+        Jomado: all
+        JomadoLiveActivity: all
+        JomadoTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - JomadoTests
+    archive:
+      config: Release

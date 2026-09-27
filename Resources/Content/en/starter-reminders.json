@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "starter-reminders-en",
+    "version": 1,
+    "locale": "en",
+    "minimumAppVersion": "0.1.0",
+    "source": "bundled",
+    "generatedAt": "2026-09-27T00:00:00Z"
+  },
+  "items": [
+    {
+      "id": "hydration.playful.normal.tiny-mission.001",
+      "routineType": "hydration",
+      "stage": "normal",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Water time 💧",
+          "body": "Tiny sip. Big hydration energy."
+        },
+        "liveActivity": {
+          "headline": "WATER TIME",
+          "body": "A few sips moves this forward.",
+          "compactStatus": "Due now"
+        },
+        "inApp": {
+          "eyebrow": "YOUR WATER BREAK",
+          "headline": "A tiny mission from Momo",
+          "body": "A few comfortable sips is enough to move this reminder forward.",
+          "tip": "Keep your bottle somewhere easy to reach.",
+          "completionLabel": "I drank water"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "hopeful",
+        "pose": "wave",
+        "prop": "waterBottle",
+        "animationCue": "gentleBounce",
+        "accessibilityLabel": "Momo waves with a hopeful smile"
+      },
+      "tags": ["short", "daytime"],
+      "dayparts": ["morning", "afternoon"],
+      "cooldownMinutes": 10080,
+      "semanticFamily": "tiny-mission",
+      "priority": 12,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    },
+    {
+      "id": "hydration.playful.normal.checkpoint.001",
+      "routineType": "hydration",
+      "stage": "normal",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Hydration checkpoint",
+          "body": "Momo is ready when you are ✨"
+        },
+        "liveActivity": {
+          "headline": "HYDRATION CHECKPOINT",
+          "body": "Your next little water break is ready.",
+          "compactStatus": "Due now"
+        },
+        "inApp": {
+          "eyebrow": "HYDRATION CHECKPOINT",
+          "headline": "Momo is ready when you are",
+          "body": "Take your water break now, or choose a clear option below.",
+          "tip": "Small, comfortable sips are enough.",
+          "completionLabel": "I drank water"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "hello",
+        "pose": "wave",
+        "prop": "waterBottle",
+        "animationCue": "wave",
+        "accessibilityLabel": "Momo waves beside a water bottle"
+      },
+      "tags": ["checkpoint", "daytime"],
+      "dayparts": ["any"],
+      "cooldownMinutes": 10080,
+      "semanticFamily": "hydration-checkpoint",
+      "priority": 10,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    },
+    {
+      "id": "hydration.playful.light-overdue.polite-wait.001",
+      "routineType": "hydration",
+      "stage": "lightOverdue",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Momo is still waiting",
+          "body": "Your water break is a few minutes late."
+        },
+        "liveActivity": {
+          "headline": "MOMO IS WAITING",
+          "body": "Your water break is a little late.",
+          "compactStatus": "3m late"
+        },
+        "inApp": {
+          "eyebrow": "A LITTLE LATE",
+          "headline": "Momo is waiting politely",
+          "body": "Your water break is still unresolved. A few sips can complete it.",
+          "tip": "Snoozing keeps this reminder open.",
+          "completionLabel": "I drank water"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "pouty",
+        "pose": "waiting",
+        "prop": "waterBottle",
+        "animationCue": "pout",
+        "accessibilityLabel": "Momo waits with a gentle pout"
+      },
+      "tags": ["overdue", "short"],
+      "dayparts": ["any"],
+      "cooldownMinutes": 10080,
+      "semanticFamily": "polite-wait",
+      "priority": 10,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    },
+    {
+      "id": "hydration.playful.medium-overdue.concerned-speech.001",
+      "routineType": "hydration",
+      "stage": "mediumOverdue",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Water break overdue",
+          "body": "Momo has begun rehearsing a concerned speech."
+        },
+        "liveActivity": {
+          "headline": "DON'T KEEP MOMO WAITING",
+          "body": "This water break is still unresolved.",
+          "compactStatus": "10m late"
+        },
+        "inApp": {
+          "eyebrow": "STILL UNRESOLVED",
+          "headline": "The concerned speech has begun",
+          "body": "Your water break is overdue. Complete it, snooze it, or skip it clearly.",
+          "tip": "Only the completion button marks this done.",
+          "completionLabel": "I drank water"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "concerned",
+        "pose": "concerned",
+        "prop": "waterBottle",
+        "animationCue": "concernedPulse",
+        "accessibilityLabel": "Momo looks concerned beside a water bottle"
+      },
+      "tags": ["overdue", "clear-action"],
+      "dayparts": ["any"],
+      "cooldownMinutes": 10080,
+      "semanticFamily": "concerned-speech",
+      "priority": 10,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    },
+    {
+      "id": "hydration.playful.red-zone.dramatic-mode.001",
+      "routineType": "hydration",
+      "stage": "redZone",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Dramatic mode activated",
+          "body": "Your water break is still unresolved."
+        },
+        "liveActivity": {
+          "headline": "DRAMATIC MODE ACTIVATED",
+          "body": "Complete or skip this water break.",
+          "compactStatus": "20m late"
+        },
+        "inApp": {
+          "eyebrow": "NEEDS ATTENTION",
+          "headline": "Momo entered dramatic mode",
+          "body": "This is still a friendly reminder. Complete it, snooze it, or skip it clearly.",
+          "tip": "No action is counted as completion by accident.",
+          "completionLabel": "I drank water"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "dramatic",
+        "pose": "dramatic",
+        "prop": "waterBottle",
+        "animationCue": "dramaticWobble",
+        "accessibilityLabel": "Momo strikes a playful dramatic pose"
+      },
+      "tags": ["overdue", "dramatic"],
+      "dayparts": ["any"],
+      "cooldownMinutes": 10080,
+      "semanticFamily": "dramatic-mode",
+      "priority": 10,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    },
+    {
+      "id": "hydration.playful.completed.small-win.001",
+      "routineType": "hydration",
+      "stage": "completed",
+      "personality": "playful",
+      "intensity": "balanced",
+      "locale": "en",
+      "variants": {
+        "notification": {
+          "title": "Nice work!",
+          "body": "Your water break is complete."
+        },
+        "liveActivity": {
+          "headline": "GREAT JOB!",
+          "body": "You completed this water break.",
+          "compactStatus": "Done"
+        },
+        "inApp": {
+          "eyebrow": "SMALL WIN",
+          "headline": "You did it!",
+          "body": "Your water break is complete. Momo is very proud of this tiny win.",
+          "tip": "Small habits add up over time.",
+          "completionLabel": "Done"
+        }
+      },
+      "mascot": {
+        "character": "momo",
+        "expression": "celebrating",
+        "pose": "celebrate",
+        "prop": "waterBottle",
+        "animationCue": "celebrate",
+        "accessibilityLabel": "Momo celebrates the completed water break"
+      },
+      "tags": ["completion", "celebration"],
+      "dayparts": ["any"],
+      "cooldownMinutes": 1440,
+      "semanticFamily": "small-win",
+      "priority": 20,
+      "enabled": true,
+      "safety": {
+        "medicalClaimReviewed": true,
+        "ageSafe": true,
+        "reviewer": "initial-content-review",
+        "reviewedAt": "2026-09-27"
+      }
+    }
+  ]
+}
