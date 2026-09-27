@@ -208,3 +208,22 @@ public extension Color {
         self.init(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 }
+
+public extension ReminderPersonality {
+    var displayName: String {
+        switch self {
+        case .gentle: "Gentle"
+        case .cute: "Cute"
+        case .playful: "Playful"
+        case .cheeky: "Cheeky"
+        case .charming: "Charming"
+        case .dramatic: "Dramatic"
+        case .strict: "Strict"
+        case .focused: "Focused"
+        }
+    }
+}
+
+public extension ReminderIntensity {
+    var displayName: String { rawValue.capitalized }
+}

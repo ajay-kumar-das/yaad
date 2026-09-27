@@ -1,16 +1,28 @@
 import Combine
 import Foundation
+import SwiftData
+
+enum JomadoTab: Hashable {
+    case today
+    case routines
+    case insights
+    case settings
+}
 
 @MainActor
 final class JomadoAppModel: ObservableObject {
     @Published private(set) var occurrence: ReminderOccurrence
     @Published private(set) var presentation: ReminderPresentation
     @Published var isReminderPresented = false
+    @Published var selectedTab: JomadoTab = .today
     @Published private(set) var systemMessage: String?
 
     private let contentRepository = ContentRepository()
     private let notificationScheduler = NotificationScheduler.shared
+    private let alarmScheduler = AlarmScheduler.shared
     private let liveActivityCoordinator = LiveActivityCoordinator()
+    private let verificationRegistry = CompletionVerificationRegistry()
+    private var routineCoordinator: RoutineSchedulingCoordinator?
     private var exposures: [ContentExposure] = []
     private var isBootstrapped = false
 
@@ -28,19 +40,110 @@ final class JomadoAppModel: ObservableObject {
         )
     }
 
+    func configure(modelContext: ModelContext) {
+        guard routineCoordinator == nil else { return }
+        routineCoordinator = RoutineSchedulingCoordinator(
+            modelContext: modelContext,
+            notificationScheduler: notificationScheduler,
+            contentRepository: contentRepository
+        )
+    }
+
     func bootstrap() async {
         guard !isBootstrapped else { return }
         isBootstrapped = true
 
         await notificationScheduler.registerCategories()
         await contentRepository.loadBundledPack()
+        await routineCoordinator?.reconcile()
         await refreshPresentation(at: .now, force: true)
 
         NotificationActionRouter.shared.install { [weak self] event in
             guard let self else { return }
             Task { @MainActor in
-                await self.handleNotificationAction(event)
+                _ = await self.handleNotificationAction(event)
             }
+        }
+        await drainExternalEvents()
+    }
+
+    func drainExternalEvents() async {
+        for externalEvent in JomadoExternalEventQueue.pendingEvents() {
+            let action: NotificationActionKind = switch externalEvent.action {
+            case .alarmStopped: .alarmStopped
+            case .opened: .opened
+            }
+            let handled = await handleNotificationAction(
+                NotificationActionEvent(
+                    action: action,
+                    occurrenceID: externalEvent.occurrenceID,
+                    routineID: externalEvent.routineID
+                )
+            )
+            if handled {
+                JomadoExternalEventQueue.acknowledge(eventID: externalEvent.id)
+            }
+        }
+    }
+
+    func reconcileSchedules() async {
+        await routineCoordinator?.reconcile()
+    }
+
+    func saveRoutine(_ draft: RoutineDraft) async {
+        do {
+            _ = try await routineCoordinator?.save(draft)
+
+            if draft.deliveryMode == .alarmAndCompanion,
+               alarmScheduler.authorizationStatus() == .notDetermined {
+                do {
+                    let granted = try await alarmScheduler.requestAuthorization()
+                    await routineCoordinator?.reconcile()
+                    systemMessage = granted
+                        ? "Routine saved. Alarm + Companion delivery is ready."
+                        : "Routine saved. Alarm access is off, so Jomado will use notification fallback when available."
+                } catch {
+                    systemMessage = "Routine saved, but alarm permission could not be requested: \(error.localizedDescription)"
+                }
+            } else {
+                systemMessage = "Routine saved and delivery schedule refreshed."
+            }
+        } catch {
+            systemMessage = "The routine could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    func setRoutineEnabled(id: UUID, enabled: Bool) async {
+        do {
+            try await routineCoordinator?.setEnabled(routineID: id, enabled: enabled)
+        } catch {
+            systemMessage = "The routine could not be updated: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteRoutine(id: UUID) async {
+        do {
+            try await routineCoordinator?.delete(routineID: id)
+        } catch {
+            systemMessage = "The routine could not be deleted: \(error.localizedDescription)"
+        }
+    }
+
+    func openOccurrence(occurrenceID: UUID, routineID: UUID) async {
+        guard let coordinator = routineCoordinator else { return }
+        do {
+            let event = NotificationActionEvent(
+                action: .opened,
+                occurrenceID: occurrenceID,
+                routineID: routineID
+            )
+            guard let persisted = try await coordinator.handleNotificationAction(event) else { return }
+            occurrence = persisted
+            exposures.removeAll()
+            await refreshPresentation(at: .now, force: true)
+            isReminderPresented = true
+        } catch {
+            systemMessage = "The reminder could not be opened: \(error.localizedDescription)"
         }
     }
 
@@ -60,9 +163,49 @@ final class JomadoAppModel: ObservableObject {
 
     func complete() async {
         guard !occurrence.status.isTerminal else { return }
-        occurrence = (try? ReminderStateMachine.apply(.completed, to: occurrence)) ?? occurrence
+
+        do {
+            let verifier = verificationRegistry.verifier(for: occurrence.routineType)
+            let result = try await verifier.verify(
+                CompletionVerificationRequest(
+                    occurrenceID: occurrence.id,
+                    routineID: occurrence.routineID,
+                    routineType: occurrence.routineType,
+                    requestedAt: .now
+                )
+            )
+            guard result.isVerified else {
+                systemMessage = "Completion could not be verified."
+                return
+            }
+        } catch {
+            systemMessage = "Completion verification failed: \(error.localizedDescription)"
+            return
+        }
+
+        var persistedUpdateApplied = false
+        if let coordinator = routineCoordinator {
+            do {
+                let event = NotificationActionEvent(
+                    action: .completed,
+                    occurrenceID: occurrence.id,
+                    routineID: occurrence.routineID
+                )
+                if let persisted = try await coordinator.handleNotificationAction(event) {
+                    occurrence = persisted
+                    persistedUpdateApplied = true
+                }
+            } catch {
+                systemMessage = "Completion could not be persisted: \(error.localizedDescription)"
+            }
+        }
+
+        if !persistedUpdateApplied {
+            occurrence = (try? ReminderStateMachine.apply(.completed, to: occurrence)) ?? occurrence
+            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+        }
+
         await refreshPresentation(at: .now, force: true)
-        await notificationScheduler.cancel(occurrenceID: occurrence.id)
         await liveActivityCoordinator.update(occurrence: occurrence, presentation: presentation)
         await liveActivityCoordinator.end(
             occurrence: occurrence,
@@ -73,21 +216,41 @@ final class JomadoAppModel: ObservableObject {
 
     func remindLater(minutes: Int = 10, closeAfter: Bool = true) async {
         guard !occurrence.status.isTerminal else { return }
-        let followUp = Date.now.addingTimeInterval(TimeInterval(minutes * 60))
-        occurrence = (
-            try? ReminderStateMachine.apply(.snoozed(until: followUp), to: occurrence)
-        ) ?? occurrence
 
-        do {
-            try await notificationScheduler.schedule(
-                occurrence: occurrence,
-                content: presentation.content,
-                at: followUp,
-                isFollowUp: true
-            )
-            systemMessage = "Reminder moved by \(minutes) minutes. It is still incomplete."
-        } catch {
-            systemMessage = "The follow-up could not be scheduled: \(error.localizedDescription)"
+        var persistedUpdateApplied = false
+        if let coordinator = routineCoordinator {
+            do {
+                let event = NotificationActionEvent(
+                    action: .remindLater,
+                    occurrenceID: occurrence.id,
+                    routineID: occurrence.routineID
+                )
+                if let persisted = try await coordinator.handleNotificationAction(event) {
+                    occurrence = persisted
+                    persistedUpdateApplied = true
+                    systemMessage = "Reminder moved by \(minutes) minutes. It is still incomplete."
+                }
+            } catch {
+                systemMessage = "The follow-up could not be persisted: \(error.localizedDescription)"
+            }
+        }
+
+        if !persistedUpdateApplied {
+            let followUp = Date.now.addingTimeInterval(TimeInterval(minutes * 60))
+            occurrence = (
+                try? ReminderStateMachine.apply(.snoozed(until: followUp), to: occurrence)
+            ) ?? occurrence
+            do {
+                try await notificationScheduler.schedule(
+                    occurrence: occurrence,
+                    content: presentation.content,
+                    at: followUp,
+                    isFollowUp: true
+                )
+                systemMessage = "Reminder moved by \(minutes) minutes. It is still incomplete."
+            } catch {
+                systemMessage = "The follow-up could not be scheduled: \(error.localizedDescription)"
+            }
         }
 
         if closeAfter { isReminderPresented = false }
@@ -95,8 +258,27 @@ final class JomadoAppModel: ObservableObject {
 
     func skip() async {
         guard !occurrence.status.isTerminal else { return }
-        occurrence = (try? ReminderStateMachine.apply(.skipped, to: occurrence)) ?? occurrence
-        await notificationScheduler.cancel(occurrenceID: occurrence.id)
+
+        var persistedUpdateApplied = false
+        if let coordinator = routineCoordinator {
+            do {
+                if let persisted = try await coordinator.skipOccurrence(
+                    occurrenceID: occurrence.id,
+                    routineID: occurrence.routineID
+                ) {
+                    occurrence = persisted
+                    persistedUpdateApplied = true
+                }
+            } catch {
+                systemMessage = "Skip could not be persisted: \(error.localizedDescription)"
+            }
+        }
+
+        if !persistedUpdateApplied {
+            occurrence = (try? ReminderStateMachine.apply(.skipped, to: occurrence)) ?? occurrence
+            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+        }
+
         await liveActivityCoordinator.end(
             occurrence: occurrence,
             presentation: presentation,
@@ -133,6 +315,21 @@ final class JomadoAppModel: ObservableObject {
             return granted
         } catch {
             systemMessage = "Notification permission could not be requested: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func requestAlarmAuthorization() async -> Bool {
+        do {
+            let granted = try await alarmScheduler.requestAuthorization()
+            await routineCoordinator?.reconcile()
+            systemMessage = granted
+                ? "Alarm + Companion delivery is ready."
+                : "Alarm access is off. Alarm routines will use notification fallback when available."
+            return granted
+        } catch {
+            systemMessage = "Alarm permission could not be requested: \(error.localizedDescription)"
             return false
         }
     }
@@ -188,9 +385,34 @@ final class JomadoAppModel: ObservableObject {
         }
     }
 
-    private func handleNotificationAction(_ event: NotificationActionEvent) async {
+    @discardableResult
+    private func handleNotificationAction(_ event: NotificationActionEvent) async -> Bool {
+        if let coordinator = routineCoordinator {
+            do {
+                if let persisted = try await coordinator.handleNotificationAction(event) {
+                    occurrence = persisted
+                    exposures.removeAll()
+                    await refreshPresentation(at: .now, force: true)
+
+                    if event.action == .opened {
+                        isReminderPresented = true
+                    } else if event.action == .completed {
+                        await liveActivityCoordinator.end(
+                            occurrence: occurrence,
+                            presentation: presentation,
+                            immediate: false
+                        )
+                    }
+                    return true
+                }
+            } catch {
+                systemMessage = "The reminder action could not be saved: \(error.localizedDescription)"
+                return false
+            }
+        }
+
         guard event.occurrenceID == occurrence.id, event.routineID == occurrence.routineID else {
-            return
+            return true
         }
 
         switch event.action {
@@ -204,7 +426,12 @@ final class JomadoAppModel: ObservableObject {
             occurrence = (
                 try? ReminderStateMachine.apply(.dismissed, to: occurrence)
             ) ?? occurrence
+        case .alarmStopped:
+            occurrence = (
+                try? ReminderStateMachine.apply(.alarmStopped, to: occurrence)
+            ) ?? occurrence
         }
+        return true
     }
 
     private func refreshPresentation(at now: Date, force: Bool = false) async {
@@ -215,12 +442,19 @@ final class JomadoAppModel: ObservableObject {
         )
         guard force || stage != presentation.stage else { return }
 
+        var storedRoutine: RoutineEntity?
+        if let coordinator = routineCoordinator {
+            storedRoutine = try? coordinator.routine(for: occurrence.routineID)
+        } else {
+            storedRoutine = nil
+        }
+
         let context = ContentSelectionContext(
             routineID: occurrence.routineID,
             routineType: occurrence.routineType,
             stage: stage,
-            personality: .playful,
-            intensity: .balanced,
+            personality: storedRoutine?.personality ?? .playful,
+            intensity: storedRoutine?.intensity ?? .balanced,
             locale: "en",
             occurrenceSlot: occurrence.dueDate.formatted(.dateTime.year().month().day().hour().minute()),
             date: now

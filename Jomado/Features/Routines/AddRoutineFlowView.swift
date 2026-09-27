@@ -1,16 +1,21 @@
 import SwiftUI
 
 struct AddRoutineFlowView: View {
-    let onSave: (RoutineType) -> Void
+    let onSave: (RoutineDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var page = 0
     @State private var selectedType: RoutineType = .hydration
     @State private var startTime = Calendar.current.date(from: DateComponents(hour: 8)) ?? .now
     @State private var endTime = Calendar.current.date(from: DateComponents(hour: 22)) ?? .now
-    @State private var repeatHours = 2
-    @State private var selectedDays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
+    @State private var repeatMinutes = 60
+    @State private var selectedDays: Set<Weekday> = Set(Weekday.allCases)
     @State private var usesAlarm = true
+    @State private var personality: ReminderPersonality = .playful
+    @State private var intensity: ReminderIntensity = .balanced
+    @State private var validationMessage: String?
+    @AppStorage("jomado.defaultPersonality") private var defaultPersonalityRaw = ReminderPersonality.playful.rawValue
+    @AppStorage("jomado.defaultIntensity") private var defaultIntensityRaw = ReminderIntensity.balanced.rawValue
 
     var body: some View {
         NavigationStack {
@@ -24,6 +29,10 @@ struct AddRoutineFlowView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .preferredColorScheme(.light)
+        .onAppear {
+            personality = ReminderPersonality(rawValue: defaultPersonalityRaw) ?? .playful
+            intensity = ReminderIntensity(rawValue: defaultIntensityRaw) ?? .balanced
+        }
     }
 
     private var hero: some View {
@@ -42,8 +51,8 @@ struct AddRoutineFlowView: View {
                 JomadoBrandWordmark()
                 Spacer()
                 VStack(alignment: .trailing, spacing: 7) {
-                    JomadoStepIndicator(current: page == 0 ? 1 : 3, total: 4)
-                    Text(page == 0 ? "Step 1 of 4" : "Step 3 of 4")
+                    JomadoStepIndicator(current: page + 1, total: 2)
+                    Text(page == 0 ? "Step 1 of 2" : "Step 2 of 2")
                         .font(.system(.caption, design: .rounded, weight: .semibold))
                         .foregroundStyle(JomadoTheme.navy)
                 }
@@ -124,11 +133,16 @@ struct AddRoutineFlowView: View {
             }
             scheduleCard
             reminderStyleCard
+            personalityCard
             deliveryCard
             previewCard
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color(jomadoHex: "FF4D5A"))
+            }
             Button {
-                onSave(selectedType)
-                dismiss()
+                saveRoutine()
             } label: {
                 Label("Save Routine", systemImage: "arrow.right")
             }
@@ -152,9 +166,9 @@ struct AddRoutineFlowView: View {
                     .font(.system(.headline, design: .rounded, weight: .bold))
                     .foregroundStyle(JomadoTheme.navy)
                 Spacer()
-                Picker("Repeat", selection: $repeatHours) {
-                    ForEach([1, 2, 3, 4], id: \.self) { hours in
-                        Text("Every \(hours) hour\(hours == 1 ? "" : "s")").tag(hours)
+                Picker("Repeat", selection: $repeatMinutes) {
+                    ForEach([20, 30, 60, 90, 120, 180, 240], id: \.self) { minutes in
+                        Text(repeatLabel(minutes)).tag(minutes)
                     }
                 }
                 .pickerStyle(.menu)
@@ -191,13 +205,40 @@ struct AddRoutineFlowView: View {
         .jomadoCard()
     }
 
+    private var personalityCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Companion personality")
+                .font(.system(.title3, design: .rounded, weight: .heavy))
+                .foregroundStyle(JomadoTheme.navy)
+
+            Picker("Personality", selection: $personality) {
+                ForEach(ReminderPersonality.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(JomadoTheme.navy)
+
+            Picker("Intensity", selection: $intensity) {
+                ForEach(ReminderIntensity.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .jomadoCard()
+    }
+
     private var deliveryCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Delivery readiness")
                 .font(.system(.title3, design: .rounded, weight: .heavy))
                 .foregroundStyle(JomadoTheme.navy)
-            readinessRow(title: "Notifications", symbol: "bell.fill", status: "Check Settings", color: Color(jomadoHex: "FF4D5A"))
-            readinessRow(title: "Live Activities", symbol: "iphone.gen3", status: "Available", color: Color(jomadoHex: "20C8B4"))
+            readinessRow(title: "Notifications", symbol: "bell.fill", status: "Managed in Settings", color: JomadoTheme.cyan)
+            if usesAlarm {
+                readinessRow(title: "AlarmKit", symbol: "alarm.fill", status: "Requested on save", color: Color(jomadoHex: "FFB020"))
+            }
+            readinessRow(title: "Live Activities", symbol: "iphone.gen3", status: "Managed by iOS", color: Color(jomadoHex: "20C8B4"))
         }
         .jomadoCard()
     }
@@ -209,7 +250,7 @@ struct AddRoutineFlowView: View {
                 Text("Daily \(selectedType.displayName)")
                     .font(.system(.headline, design: .rounded, weight: .heavy))
                     .foregroundStyle(JomadoTheme.navy)
-                Text("Every \(repeatHours) hour\(repeatHours == 1 ? "" : "s")  •  \(startTime.formatted(date: .omitted, time: .shortened))–\(endTime.formatted(date: .omitted, time: .shortened))")
+                Text("\(repeatLabel(repeatMinutes))  •  \(startTime.formatted(date: .omitted, time: .shortened))–\(endTime.formatted(date: .omitted, time: .shortened))")
                     .font(.system(.caption, design: .rounded))
                     .foregroundStyle(JomadoTheme.secondaryText)
             }
@@ -273,6 +314,52 @@ struct AddRoutineFlowView: View {
         }
     }
 
+    private func saveRoutine() {
+        let calendar = Calendar.current
+        let start = LocalTime(date: startTime, calendar: calendar)
+        let end = LocalTime(date: endTime, calendar: calendar)
+
+        guard start < end else {
+            validationMessage = "End time must be later than start time."
+            return
+        }
+        guard !selectedDays.isEmpty else {
+            validationMessage = "Choose at least one day."
+            return
+        }
+
+        let draft = RoutineDraft(
+            type: selectedType,
+            name: selectedType.displayName,
+            schedule: .interval(
+                start: start,
+                end: end,
+                everyMinutes: repeatMinutes,
+                weekdays: selectedDays
+            ),
+            deliveryMode: usesAlarm ? .alarmAndCompanion : .companionOnly,
+            personality: personality,
+            intensity: intensity,
+            smartSnoozeEnabled: true,
+            snoozeMinutes: 10,
+            maxSnoozes: 3
+        )
+        validationMessage = nil
+        onSave(draft)
+        dismiss()
+    }
+
+    private func repeatLabel(_ minutes: Int) -> String {
+        if minutes < 60 { return "Every \(minutes) min" }
+        if minutes % 60 == 0 {
+            let hours = minutes / 60
+            return "Every \(hours) hour\(hours == 1 ? "" : "s")"
+        }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return "Every \(hours)h \(remainder)m"
+    }
+
     private func shortDescription(for type: RoutineType) -> String {
         switch type {
         case .hydration: "Drink more water"
@@ -291,20 +378,6 @@ struct AddRoutineFlowView: View {
 
     private var availableTypes: [RoutineType] {
         [.hydration, .exercise, .stretching, .eyeCare, .yoga, .posture, .breathing, .meditation, .sleep, .custom]
-    }
-}
-
-private extension Weekday {
-    var shortName: String {
-        switch self {
-        case .monday: "Mon"
-        case .tuesday: "Tue"
-        case .wednesday: "Wed"
-        case .thursday: "Thu"
-        case .friday: "Fri"
-        case .saturday: "Sat"
-        case .sunday: "Sun"
-        }
     }
 }
 

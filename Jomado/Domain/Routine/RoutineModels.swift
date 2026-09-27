@@ -21,6 +21,15 @@ struct LocalTime: Codable, Hashable, Comparable, Sendable {
         self.minute = minute
     }
 
+    init(date: Date, calendar: Calendar = .current) {
+        self.init(
+            hour: calendar.component(.hour, from: date),
+            minute: calendar.component(.minute, from: date)
+        )
+    }
+
+    var minutesFromMidnight: Int { hour * 60 + minute }
+
     static func < (lhs: Self, rhs: Self) -> Bool {
         (lhs.hour, lhs.minute) < (rhs.hour, rhs.minute)
     }
@@ -29,6 +38,17 @@ struct LocalTime: Codable, Hashable, Comparable, Sendable {
 enum RoutineSchedule: Codable, Hashable, Sendable {
     case interval(start: LocalTime, end: LocalTime, everyMinutes: Int, weekdays: Set<Weekday>)
     case fixed(times: [LocalTime], weekdays: Set<Weekday>)
+
+    var weekdays: Set<Weekday> {
+        switch self {
+        case .interval(_, _, _, let weekdays), .fixed(_, let weekdays): weekdays
+        }
+    }
+}
+
+enum RoutineDeliveryMode: String, Codable, CaseIterable, Hashable, Sendable {
+    case alarmAndCompanion
+    case companionOnly
 }
 
 struct RoutineTemplate: Identifiable, Codable, Hashable, Sendable {
@@ -69,11 +89,47 @@ struct RoutineInstance: Identifiable, Codable, Hashable, Sendable {
     var symbolName: String
     var accentHex: String
     var schedule: RoutineSchedule
+    var deliveryMode: RoutineDeliveryMode
     var personality: ReminderPersonality
     var intensity: ReminderIntensity
     var smartSnoozeEnabled: Bool
+    var snoozeMinutes: Int
+    var maxSnoozes: Int
     var completionLabel: String
     let createdAt: Date
     var updatedAt: Date
 }
 
+struct RoutineDraft: Hashable, Sendable {
+    var type: RoutineType
+    var name: String
+    var schedule: RoutineSchedule
+    var deliveryMode: RoutineDeliveryMode
+    var personality: ReminderPersonality
+    var intensity: ReminderIntensity
+    var smartSnoozeEnabled: Bool
+    var snoozeMinutes: Int
+    var maxSnoozes: Int
+
+    func materialize(id: UUID = UUID(), now: Date = .now) -> RoutineInstance {
+        RoutineInstance(
+            id: id,
+            templateID: "template.\(type.rawValue)",
+            name: name,
+            enabled: true,
+            type: type,
+            symbolName: type.symbolName,
+            accentHex: type.accentHex,
+            schedule: schedule,
+            deliveryMode: deliveryMode,
+            personality: personality,
+            intensity: intensity,
+            smartSnoozeEnabled: smartSnoozeEnabled,
+            snoozeMinutes: snoozeMinutes,
+            maxSnoozes: maxSnoozes,
+            completionLabel: type.defaultCompletionLabel,
+            createdAt: now,
+            updatedAt: now
+        )
+    }
+}

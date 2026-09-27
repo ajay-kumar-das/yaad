@@ -32,6 +32,10 @@ actor ContentRepository {
         }
     }
 
+    func item(id: String) -> ReminderContentItem? {
+        activePack?.items.first { $0.id == id }
+    }
+
     func select(
         context: ContentSelectionContext,
         exposures: [ContentExposure]

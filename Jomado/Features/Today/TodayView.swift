@@ -1,7 +1,41 @@
+import SwiftData
 import SwiftUI
 
 struct TodayView: View {
     @EnvironmentObject private var model: JomadoAppModel
+    @Query(sort: \RoutineEntity.createdAt) private var routines: [RoutineEntity]
+    @Query(sort: \ReminderOccurrenceEntity.scheduledAt) private var occurrences: [ReminderOccurrenceEntity]
+
+    private var calendar: Calendar { .current }
+    private var startOfToday: Date { calendar.startOfDay(for: .now) }
+    private var startOfTomorrow: Date {
+        calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? startOfToday.addingTimeInterval(86_400)
+    }
+
+    private var activeRoutines: [RoutineEntity] { routines.filter(\.enabled) }
+    private var todayOccurrences: [ReminderOccurrenceEntity] {
+        occurrences.filter { $0.scheduledAt >= startOfToday && $0.scheduledAt < startOfTomorrow }
+    }
+    private var completedToday: Int { todayOccurrences.filter { $0.status == .completed }.count }
+    private var totalToday: Int { todayOccurrences.count }
+    private var progress: Double {
+        guard totalToday > 0 else { return 0 }
+        return Double(completedToday) / Double(totalToday)
+    }
+    private var progressPercent: Int { Int((progress * 100).rounded()) }
+
+    private var nextOccurrence: ReminderOccurrenceEntity? {
+        let unresolved = occurrences.filter { !$0.status.isTerminal }
+        let today = unresolved.filter {
+            $0.scheduledAt >= startOfToday && $0.scheduledAt < startOfTomorrow
+        }
+        if let earliestToday = today.min(by: { $0.scheduledAt < $1.scheduledAt }) {
+            return earliestToday
+        }
+        return unresolved
+            .filter { $0.scheduledAt >= startOfTomorrow }
+            .min(by: { $0.scheduledAt < $1.scheduledAt })
+    }
 
     var body: some View {
         NavigationStack {
@@ -24,30 +58,31 @@ struct TodayView: View {
             }
             .jomadoPageBackground()
             .toolbar(.hidden, for: .navigationBar)
+            .task { await model.reconcileSchedules() }
         }
     }
 
     private var hero: some View {
-        ZStack(alignment: .top) {
+        let hasCompletedSomething = completedToday > 0
+
+        return ZStack(alignment: .top) {
             JomadoLandscapeBackground()
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     JomadoBrandWordmark()
                     Spacer()
-                    Button(action: {}) {
-                        Image(systemName: "bell")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(JomadoTheme.navy)
-                            .frame(width: 44, height: 44)
-                            .background(.white.opacity(0.88), in: Circle())
-                    }
-                    .accessibilityLabel("Notifications")
+                    Image(systemName: "bell")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(JomadoTheme.navy)
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.88), in: Circle())
+                        .accessibilityLabel("Notifications")
                 }
 
                 Spacer()
 
-                Text(model.occurrence.status == .completed ? "Nice work today!" : "Good morning!")
+                Text(hasCompletedSomething ? "Nice work today!" : greeting)
                     .font(.system(size: 31, weight: .heavy, design: .rounded))
                     .foregroundStyle(JomadoTheme.navy)
                 Text("A healthier, happier\nyou is in the making. 💙")
@@ -59,14 +94,14 @@ struct TodayView: View {
             .padding(.vertical, 12)
 
             AnimatedMomoView(
-                expression: model.occurrence.status == .completed ? .proud : .hello,
-                cue: model.occurrence.status == .completed ? .celebrate : .idleFloat,
-                accessibilityLabel: model.occurrence.status == .completed ? "Momo looks proud" : "Momo waves hello"
+                expression: hasCompletedSomething ? .proud : .hello,
+                cue: hasCompletedSomething ? .celebrate : .idleFloat,
+                accessibilityLabel: hasCompletedSomething ? "Momo looks proud" : "Momo waves hello"
             )
             .frame(width: 188, height: 188)
             .offset(x: 78, y: 64)
 
-            JomadoSpeechBubble(text: model.occurrence.status == .completed ? "You did it! 💙" : "You’re doing great today! 💙")
+            JomadoSpeechBubble(text: hasCompletedSomething ? "Keep that momentum! 💙" : "One small step at a time! 💙")
                 .frame(maxWidth: 150)
                 .offset(x: 104, y: 62)
         }
@@ -76,9 +111,9 @@ struct TodayView: View {
     private var progressCard: some View {
         HStack(spacing: 18) {
             JomadoProgressRing(
-                progress: model.occurrence.status == .completed ? 1 : 0.67,
+                progress: progress,
                 color: JomadoTheme.cyan,
-                label: model.occurrence.status == .completed ? "100%" : "67%",
+                label: "\(progressPercent)%",
                 size: 108
             )
 
@@ -86,67 +121,105 @@ struct TodayView: View {
                 Text("Today’s Progress")
                     .font(.system(.title3, design: .rounded, weight: .heavy))
                     .foregroundStyle(JomadoTheme.navy)
-                Text(model.occurrence.status == .completed ? "4 of 5 routines completed" : "3 of 5 routines completed")
+                Text(totalToday == 0
+                     ? "No scheduled occurrences today"
+                     : "\(completedToday) of \(totalToday) reminders completed")
                     .font(.system(.subheadline, design: .rounded))
                     .foregroundStyle(JomadoTheme.secondaryText)
-                Label("You’re on track!", systemImage: "arrow.up.right")
+
+                Label(progressStatusText, systemImage: progressStatusSymbol)
                     .font(.system(.subheadline, design: .rounded, weight: .bold))
-                    .foregroundStyle(JomadoTheme.success)
+                    .foregroundStyle(progressStatusColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(JomadoTheme.success.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                    .background(progressStatusColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
             }
             Spacer(minLength: 0)
         }
         .jomadoCard()
     }
 
+    @ViewBuilder
     private var nextUpCard: some View {
-        Button {
-            if !model.occurrence.status.isTerminal { model.openReminder() }
-        } label: {
-            HStack(spacing: 13) {
-                JomadoIconBadge(
-                    symbol: model.occurrence.status == .completed ? "checkmark.circle.fill" : "bell.fill",
-                    color: model.occurrence.status == .completed ? JomadoTheme.success : Color(jomadoHex: "FFB020"),
-                    size: 52
-                )
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.occurrence.status == .completed ? "Completed" : "Next up")
-                        .font(.system(.caption, design: .rounded))
-                        .foregroundStyle(JomadoTheme.secondaryText)
-                    Text(model.occurrence.routineName)
-                        .font(.system(.headline, design: .rounded, weight: .heavy))
-                        .foregroundStyle(JomadoTheme.navy)
-                    Text(model.occurrence.status == .completed ? "Nice work" : "In 25 minutes  •  10:00 AM")
-                        .font(.system(.caption, design: .rounded, weight: .medium))
-                        .foregroundStyle(JomadoTheme.secondaryText)
+        if let occurrence = nextOccurrence, let routine = routine(for: occurrence.routineID) {
+            Button {
+                Task {
+                    await model.openOccurrence(
+                        occurrenceID: occurrence.id,
+                        routineID: occurrence.routineID
+                    )
                 }
-                Spacer()
-                MomoArtwork(expression: model.occurrence.status == .completed ? .proud : .hopeful)
-                    .frame(width: 46, height: 46)
-                if !model.occurrence.status.isTerminal {
+            } label: {
+                HStack(spacing: 13) {
+                    JomadoIconBadge(
+                        symbol: occurrence.scheduledAt <= .now ? "bell.badge.fill" : "bell.fill",
+                        color: occurrence.scheduledAt <= .now ? Color(jomadoHex: "FF8A2B") : Color(jomadoHex: "FFB020"),
+                        size: 52
+                    )
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(occurrence.scheduledAt <= .now ? "Needs attention" : "Next up")
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundStyle(JomadoTheme.secondaryText)
+                        Text(routine.name)
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .foregroundStyle(JomadoTheme.navy)
+                        Text(nextTimeText(occurrence.scheduledAt))
+                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .foregroundStyle(JomadoTheme.secondaryText)
+                    }
+                    Spacer()
+                    MomoArtwork(expression: occurrence.scheduledAt <= .now ? .concerned : .hopeful)
+                        .frame(width: 46, height: 46)
                     Label("View", systemImage: "chevron.right")
                         .font(.system(.subheadline, design: .rounded, weight: .bold))
                         .foregroundStyle(JomadoTheme.blue)
                 }
+                .padding(15)
+                .background(JomadoTheme.sky.opacity(0.78), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack(spacing: 13) {
+                JomadoIconBadge(symbol: "checkmark.circle.fill", color: JomadoTheme.success, size: 52)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(activeRoutines.isEmpty ? "No routines yet" : "All clear")
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundStyle(JomadoTheme.secondaryText)
+                    Text(activeRoutines.isEmpty ? "Create your first routine" : "No unresolved reminders")
+                        .font(.system(.headline, design: .rounded, weight: .heavy))
+                        .foregroundStyle(JomadoTheme.navy)
+                    Text(activeRoutines.isEmpty ? "Use the Routines tab to get started." : "Momo will be ready for the next one.")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(JomadoTheme.secondaryText)
+                }
+                Spacer()
+                MomoArtwork(expression: .proud)
+                    .frame(width: 46, height: 46)
             }
             .padding(15)
             .background(JomadoTheme.sky.opacity(0.78), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .disabled(model.occurrence.status.isTerminal)
     }
 
     private var quickActions: some View {
         HStack(spacing: 9) {
-            quickAction(title: "Log Water", symbol: "drop.fill", color: JomadoTheme.cyan) { model.openReminder() }
-            quickAction(title: "Start Stretch", symbol: "figure.flexibility", color: Color(jomadoHex: "7C5CFC")) { model.openReminder() }
-            quickAction(title: "View Progress", symbol: "chart.bar.fill", color: Color(jomadoHex: "20C985")) {}
-            quickAction(title: "Get a Nudge", symbol: "face.smiling.fill", color: Color(jomadoHex: "FFB020")) { model.openReminder() }
+            quickAction(title: "Log Water", symbol: "drop.fill", color: JomadoTheme.cyan) {
+                openNext(type: .hydration)
+            }
+            quickAction(title: "Start Stretch", symbol: "figure.flexibility", color: Color(jomadoHex: "7C5CFC")) {
+                openNext(type: .stretching)
+            }
+            quickAction(title: "View Progress", symbol: "chart.bar.fill", color: Color(jomadoHex: "20C985")) {
+                model.selectedTab = .insights
+            }
+            quickAction(title: "Get a Nudge", symbol: "face.smiling.fill", color: Color(jomadoHex: "FFB020")) {
+                guard let occurrence = nextOccurrence else { return }
+                Task { await model.openOccurrence(occurrenceID: occurrence.id, routineID: occurrence.routineID) }
+            }
         }
     }
 
+    @ViewBuilder
     private var routineList: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -154,14 +227,30 @@ struct TodayView: View {
                     .font(.system(.title2, design: .rounded, weight: .heavy))
                     .foregroundStyle(JomadoTheme.navy)
                 Spacer()
-                Button("See All") {}
+                Text("\(activeRoutines.count) active")
                     .font(.system(.subheadline, design: .rounded, weight: .bold))
                     .foregroundStyle(JomadoTheme.blue)
             }
 
-            routineSummary(type: .hydration, name: "Hydration", detail: "8:00 AM–10:00 PM  •  Every 60 min", progress: "3 / 8", value: 0.38)
-            routineSummary(type: .stretching, name: "Stretching", detail: "2 sessions today  •  5–10 min", progress: "1 / 2", value: 0.5)
-            routineSummary(type: .eyeCare, name: "Eye Break", detail: "Every 20 min  •  20 sec", progress: "2 / 6", value: 0.33)
+            if activeRoutines.isEmpty {
+                Text("Add a routine to start scheduling reminders.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundStyle(JomadoTheme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .jomadoCard()
+            } else {
+                ForEach(activeRoutines.prefix(4)) { routine in
+                    let routineOccurrences = todayOccurrences.filter { $0.routineID == routine.id }
+                    let completed = routineOccurrences.filter { $0.status == .completed }.count
+                    let total = routineOccurrences.count
+                    routineSummary(
+                        routine: routine,
+                        detail: scheduleDescription(routine.schedule),
+                        progress: "\(completed) / \(total)",
+                        value: total == 0 ? 0 : Double(completed) / Double(total)
+                    )
+                }
+            }
         }
     }
 
@@ -180,11 +269,11 @@ struct TodayView: View {
         .buttonStyle(.plain)
     }
 
-    private func routineSummary(type: RoutineType, name: String, detail: String, progress: String, value: Double) -> some View {
+    private func routineSummary(routine: RoutineEntity, detail: String, progress: String, value: Double) -> some View {
         HStack(spacing: 12) {
-            JomadoIconBadge(symbol: type.symbolName, color: Color(jomadoHex: type.accentHex), size: 48)
+            JomadoIconBadge(symbol: routine.symbolName, color: Color(jomadoHex: routine.accentHex), size: 48)
             VStack(alignment: .leading, spacing: 3) {
-                Text(name)
+                Text(routine.name)
                     .font(.system(.headline, design: .rounded, weight: .heavy))
                     .foregroundStyle(JomadoTheme.navy)
                 Text(detail)
@@ -200,15 +289,93 @@ struct TodayView: View {
                 Circle().stroke(JomadoTheme.sky, lineWidth: 7)
                 Circle()
                     .trim(from: 0, to: value)
-                    .stroke(Color(jomadoHex: type.accentHex), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    .stroke(Color(jomadoHex: routine.accentHex), style: StrokeStyle(lineWidth: 7, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 38, height: 38)
-            Image(systemName: "chevron.right")
-                .foregroundStyle(JomadoTheme.secondaryText)
         }
         .padding(13)
         .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var greeting: String {
+        switch calendar.component(.hour, from: .now) {
+        case 5..<12: "Good morning!"
+        case 12..<17: "Good afternoon!"
+        case 17..<22: "Good evening!"
+        default: "Hello there!"
+        }
+    }
+
+    private var progressStatusText: String {
+        if totalToday == 0 { return activeRoutines.isEmpty ? "Add a routine" : "Schedule is clear" }
+        if completedToday == totalToday { return "All done for today!" }
+        if progress >= 0.5 { return "You’re making progress!" }
+        return "One small step next"
+    }
+
+    private var progressStatusSymbol: String {
+        completedToday == totalToday && totalToday > 0 ? "checkmark" : "arrow.up.right"
+    }
+
+    private var progressStatusColor: Color {
+        completedToday == totalToday && totalToday > 0 ? JomadoTheme.success : JomadoTheme.cyan
+    }
+
+    private func routine(for id: UUID) -> RoutineEntity? {
+        routines.first { $0.id == id }
+    }
+
+    private func openNext(type: RoutineType) {
+        guard let routine = activeRoutines.first(where: { $0.routineType == type }) else { return }
+        guard let occurrence = occurrences
+            .filter({
+                $0.routineID == routine.id
+                    && !$0.status.isTerminal
+                    && $0.scheduledAt >= startOfToday
+            })
+            .min(by: { $0.scheduledAt < $1.scheduledAt }) else { return }
+        Task { await model.openOccurrence(occurrenceID: occurrence.id, routineID: occurrence.routineID) }
+    }
+
+    private func nextTimeText(_ date: Date) -> String {
+        let absolute = date.formatted(date: calendar.isDateInToday(date) ? .omitted : .abbreviated, time: .shortened)
+        let interval = date.timeIntervalSinceNow
+        if abs(interval) < 60 { return "Due now • \(absolute)" }
+        if interval < 0 {
+            let minutes = max(1, Int(abs(interval) / 60))
+            return "\(minutes)m overdue • \(absolute)"
+        }
+        if interval < 3_600 {
+            return "In \(max(1, Int(interval / 60))) min • \(absolute)"
+        }
+        return absolute
+    }
+
+    private func scheduleDescription(_ schedule: RoutineSchedule) -> String {
+        switch schedule {
+        case .interval(let start, let end, let minutes, _):
+            return "\(timeLabel(start))–\(timeLabel(end)) • \(repeatLabel(minutes))"
+        case .fixed(let times, _):
+            return times.sorted().map(timeLabel).joined(separator: ", ")
+        }
+    }
+
+    private func timeLabel(_ time: LocalTime) -> String {
+        var components = DateComponents()
+        components.hour = time.hour
+        components.minute = time.minute
+        let date = calendar.date(from: components) ?? .now
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+
+    private func repeatLabel(_ minutes: Int) -> String {
+        if minutes < 60 { return "Every \(minutes) min" }
+        if minutes % 60 == 0 {
+            let hours = minutes / 60
+            return "Every \(hours) hour\(hours == 1 ? "" : "s")"
+        }
+        return "Every \(minutes / 60)h \(minutes % 60)m"
     }
 
     #if DEBUG
@@ -251,4 +418,5 @@ struct TodayView: View {
 #Preview {
     TodayView()
         .environmentObject(JomadoAppModel())
+        .modelContainer(for: [RoutineEntity.self, ReminderOccurrenceEntity.self, ContentExposureEntity.self], inMemory: true)
 }
