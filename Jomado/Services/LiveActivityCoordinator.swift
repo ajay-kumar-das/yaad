@@ -1,8 +1,7 @@
 import ActivityKit
 import Foundation
 
-@MainActor
-final class LiveActivityCoordinator {
+struct LiveActivityCoordinator: Sendable {
     var activitiesEnabled: Bool {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
