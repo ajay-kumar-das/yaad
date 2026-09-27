@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct RootView: View {
@@ -30,7 +31,7 @@ struct RootView: View {
                 await model.reconcileSchedules()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSSystemTimeZoneDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
             Task { await model.reconcileSchedules() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
