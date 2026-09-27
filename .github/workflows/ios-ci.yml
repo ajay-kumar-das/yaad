@@ -154,3 +154,67 @@ jobs:
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             test
+
+      - name: Build unsigned device IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEVICE_DERIVED_DATA="$RUNNER_TEMP/jomado-device-derived-data"
+          IPA_STAGING="$RUNNER_TEMP/jomado-ipa-staging"
+          IPA_PATH="$GITHUB_WORKSPACE/Jomado-unsigned.ipa"
+
+          rm -rf "$DEVICE_DERIVED_DATA" "$IPA_STAGING" "$IPA_PATH" "$IPA_PATH.sha256"
+
+          xcodebuild \
+            -project Jomado.xcodeproj \
+            -scheme Jomado \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DEVICE_DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          APP_PATH="$DEVICE_DERIVED_DATA/Build/Products/Release-iphoneos/Jomado.app"
+          test -d "$APP_PATH"
+          test -f "$APP_PATH/Jomado"
+          test -d "$APP_PATH/PlugIns/JomadoLiveActivity.appex"
+
+          mkdir -p "$IPA_STAGING/Payload"
+          cp -R "$APP_PATH" "$IPA_STAGING/Payload/"
+
+          (
+            cd "$IPA_STAGING"
+            /usr/bin/zip -qry "$IPA_PATH" Payload
+          )
+
+          test -s "$IPA_PATH"
+          /usr/bin/unzip -l "$IPA_PATH" | grep -q 'Payload/Jomado.app/Jomado'
+          /usr/bin/unzip -l "$IPA_PATH" | grep -q 'Payload/Jomado.app/PlugIns/JomadoLiveActivity.appex/'
+
+          shasum -a 256 "$IPA_PATH" | tee "$IPA_PATH.sha256"
+
+          {
+            echo "## Unsigned device IPA"
+            echo
+            echo "- Built for: iphoneos / generic iOS device"
+            echo "- Configuration: Release"
+            echo "- Signing: disabled; intended for local re-signing with Sideloadly"
+            echo "- Includes Live Activity extension: yes"
+            echo
+            echo '```text'
+            cat "$IPA_PATH.sha256"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jomado-unsigned-ipa
+          path: |
+            Jomado-unsigned.ipa
+            Jomado-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14

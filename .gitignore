@@ -7,3 +7,10 @@ xcuserdata/
 .swiftpm/
 .codex-temp/
 
+Jomado.xcodeproj/
+*.xcarchive
+*.xcresult
+*.ipa
+*.ipa.sha256
+*.patch
+*.log
