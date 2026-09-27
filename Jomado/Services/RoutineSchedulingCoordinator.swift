@@ -203,7 +203,7 @@ final class RoutineSchedulingCoordinator {
                 }
 
                 if canScheduleNotification {
-                    let requestID = await notificationScheduler.requestIdentifier(
+                    let requestID = notificationScheduler.requestIdentifier(
                         occurrenceID: entity.id,
                         isFollowUp: false
                     )
@@ -225,7 +225,7 @@ final class RoutineSchedulingCoordinator {
             let enabledRoutinesByID = Dictionary(uniqueKeysWithValues: routines.map { ($0.id, $0) })
             let unresolvedOccurrences = try fetchUnresolvedOccurrences()
             for entity in unresolvedOccurrences {
-                let followUpRequestID = await notificationScheduler.requestIdentifier(
+                let followUpRequestID = notificationScheduler.requestIdentifier(
                     occurrenceID: entity.id,
                     isFollowUp: true
                 )

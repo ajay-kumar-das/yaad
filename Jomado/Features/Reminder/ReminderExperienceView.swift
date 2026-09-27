@@ -262,15 +262,12 @@ private struct ConfettiBurst: View {
         GeometryReader { proxy in
             ZStack {
                 ForEach(0..<18, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colors[index % colors.count])
-                        .frame(width: 7, height: 12)
-                        .rotationEffect(.degrees(expanded ? Double(index * 47) : 0))
-                        .offset(
-                            x: expanded ? CGFloat(cos(Double(index) * 1.7)) * proxy.size.width * 0.48 : 0,
-                            y: expanded ? CGFloat(sin(Double(index) * 1.3)) * proxy.size.height * 0.42 : -10
-                        )
-                        .opacity(expanded ? 0 : 1)
+                    ConfettiParticle(
+                        index: index,
+                        color: colors[index % colors.count],
+                        expanded: expanded,
+                        containerSize: proxy.size
+                    )
                 }
             }
             .position(x: proxy.size.width / 2, y: proxy.size.height * 0.42)
@@ -280,6 +277,36 @@ private struct ConfettiBurst: View {
                 expanded = true
             }
         }
+    }
+}
+
+private struct ConfettiParticle: View {
+    let index: Int
+    let color: Color
+    let expanded: Bool
+    let containerSize: CGSize
+
+    private var rotation: Angle {
+        .degrees(expanded ? Double(index * 47) : 0)
+    }
+
+    private var xOffset: CGFloat {
+        guard expanded else { return 0 }
+        return CGFloat(cos(Double(index) * 1.7)) * containerSize.width * 0.48
+    }
+
+    private var yOffset: CGFloat {
+        guard expanded else { return -10 }
+        return CGFloat(sin(Double(index) * 1.3)) * containerSize.height * 0.42
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(color)
+            .frame(width: 7, height: 12)
+            .rotationEffect(rotation)
+            .offset(x: xOffset, y: yOffset)
+            .opacity(expanded ? 0 : 1)
     }
 }
 
