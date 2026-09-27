@@ -1,4 +1,4 @@
-name: Jomado
+name: yaad
 options:
   bundleIdPrefix: com.ajay
   deploymentTarget:
