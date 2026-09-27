@@ -15,6 +15,14 @@ public struct MomoArtwork: View {
         self.accessibilityLabel = accessibilityLabel ?? "\(self.mascot.displayName). \(expression.accessibilityDescription)"
     }
 
+    private var bodyStyle: CompanionBodyShape.Style {
+        switch mascot {
+        case .momo: .droplet
+        case .momoMint: .orb
+        case .momoViolet: .bean
+        }
+    }
+
     private var palette: (top: Color, middle: Color, bottom: Color, limb: Color, shadow: Color) {
         switch mascot {
         case .momo:
@@ -36,7 +44,7 @@ public struct MomoArtwork: View {
                 foot(size: size, leading: true)
                 foot(size: size, leading: false)
 
-                DropletShape()
+                CompanionBodyShape(style: bodyStyle)
                     .fill(
                         LinearGradient(
                             colors: [palette.top, palette.middle, palette.bottom],
@@ -45,7 +53,7 @@ public struct MomoArtwork: View {
                         )
                     )
                     .overlay {
-                        DropletShape()
+                        CompanionBodyShape(style: bodyStyle)
                             .stroke(.white.opacity(0.42), lineWidth: max(1, size * 0.012))
                     }
                     .frame(width: size * 0.66, height: size * 0.78)
@@ -162,6 +170,23 @@ public struct MomoArtwork: View {
                 height: size * (closed ? 0.022 : 0.075)
             )
             .rotationEffect(.degrees(closed ? -4 : 0))
+    }
+}
+
+private struct CompanionBodyShape: Shape {
+    enum Style { case droplet, orb, bean }
+    let style: Style
+
+    func path(in rect: CGRect) -> Path {
+        switch style {
+        case .droplet:
+            return DropletShape().path(in: rect)
+        case .orb:
+            return Path(ellipseIn: rect.insetBy(dx: rect.width * 0.04, dy: rect.height * 0.08))
+        case .bean:
+            return RoundedRectangle(cornerRadius: rect.width * 0.28, style: .continuous)
+                .path(in: rect.insetBy(dx: rect.width * 0.025, dy: rect.height * 0.04))
+        }
     }
 }
 

@@ -129,7 +129,14 @@ final class RoutineEntity {
         return values[Self.stableIndex(seed: occurrenceKey, count: values.count)]
     }
     func mascotID(for occurrenceKey: String) -> String {
-        let values = mascotIDs.sorted()
+        let compatible = mascotIDs.filter {
+            CompanionMascot(rawValue: $0)?.isSuitable(for: routineType) == true
+        }
+        let values = (
+            compatible.isEmpty
+                ? [CompanionMascot.preferred(for: routineType).rawValue]
+                : Array(compatible)
+        ).sorted()
         return values[Self.stableIndex(seed: occurrenceKey + ".mascot", count: values.count)]
     }
 

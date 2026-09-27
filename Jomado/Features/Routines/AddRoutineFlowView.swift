@@ -509,7 +509,7 @@ struct AddRoutineFlowView: View {
             Divider()
             Text("Mascots").font(.system(.subheadline, design: .rounded, weight: .heavy)).foregroundStyle(JomadoTheme.navy)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                ForEach(CompanionMascot.allCases, id: \.self) { mascot in
+                ForEach(CompanionMascot.suitable(for: selectedType), id: \.self) { mascot in
                     Button {
                         if selectedMascots.contains(mascot.rawValue) { if selectedMascots.count > 1 { selectedMascots.remove(mascot.rawValue) } } else { selectedMascots.insert(mascot.rawValue) }
                     } label: {
@@ -927,6 +927,12 @@ struct AddRoutineFlowView: View {
         selectedSymbol = type.symbolName
         selectedAccent = type.accentHex
         goal = ""
+
+        let compatibleMascots = Set(CompanionMascot.suitable(for: type).map { $0.rawValue })
+        selectedMascots.formIntersection(compatibleMascots)
+        if selectedMascots.isEmpty {
+            selectedMascots = [CompanionMascot.preferred(for: type).rawValue]
+        }
 
         switch type {
         case .hydration:

@@ -15,7 +15,7 @@ struct JomadoLiveActivityWidget: Widget {
 
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    LiveMomoArtwork(expression: context.state.expression, size: 46)
+                    LiveMomoArtwork(mascotID: context.attributes.mascotID, expression: context.state.expression, size: 46)
                 }
 
                 DynamicIslandExpandedRegion(.center) {
@@ -54,7 +54,7 @@ struct JomadoLiveActivityWidget: Widget {
                     }
                 }
             } compactLeading: {
-                LiveMomoArtwork(expression: context.state.expression, size: 24)
+                LiveMomoArtwork(mascotID: context.attributes.mascotID, expression: context.state.expression, size: 24)
                     .accessibilityHidden(true)
             } compactTrailing: {
                 LiveStatusText(
@@ -69,7 +69,7 @@ struct JomadoLiveActivityWidget: Widget {
                 ZStack {
                     Circle()
                         .stroke(accent, lineWidth: 2)
-                    LiveMomoArtwork(expression: context.state.expression, size: 18)
+                    LiveMomoArtwork(mascotID: context.attributes.mascotID, expression: context.state.expression, size: 18)
                 }
                 .frame(width: 24, height: 24)
                 .accessibilityLabel("\(context.attributes.routineName), \(context.state.compactStatus)")
@@ -144,7 +144,7 @@ private struct JomadoLockScreenActivityView: View {
 
                 Spacer(minLength: 4)
 
-                LiveMomoArtwork(expression: context.state.expression, size: 82)
+                LiveMomoArtwork(mascotID: context.attributes.mascotID, expression: context.state.expression, size: 82)
             }
 
             UrgencyRail(stage: stage)
@@ -224,6 +224,7 @@ private struct UrgencyRail: View {
 }
 
 private struct LiveMomoArtwork: View {
+    let mascotID: String
     let expression: MascotExpression
     let size: CGFloat
 
@@ -231,7 +232,7 @@ private struct LiveMomoArtwork: View {
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
 
     var body: some View {
-        MomoArtwork(expression: expression)
+        MomoArtwork(mascotID: mascotID, expression: expression)
             .frame(width: size, height: size)
             .id(expression)
             .transition(.scale.combined(with: .opacity))

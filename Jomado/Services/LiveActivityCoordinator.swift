@@ -8,7 +8,8 @@ struct LiveActivityCoordinator: Sendable {
 
     func start(
         occurrence: ReminderOccurrence,
-        presentation: ReminderPresentation
+        presentation: ReminderPresentation,
+        mascotID: String
     ) async throws {
         guard activitiesEnabled else { return }
 
@@ -25,7 +26,7 @@ struct LiveActivityCoordinator: Sendable {
         }
 
         _ = try Activity<JomadoActivityAttributes>.request(
-            attributes: makeAttributes(occurrence: occurrence),
+            attributes: makeAttributes(occurrence: occurrence, mascotID: mascotID),
             content: content,
             pushType: nil
         )
@@ -33,9 +34,11 @@ struct LiveActivityCoordinator: Sendable {
 
     func schedule(
         occurrence: ReminderOccurrence,
-        presentation: ReminderPresentation
+        presentation: ReminderPresentation,
+        mascotID: String
     ) throws {
         guard activitiesEnabled else { return }
+        guard activity(for: occurrence.id) == nil else { return }
 
         let state = makeState(occurrence: occurrence, presentation: presentation)
         let content = ActivityContent(
@@ -50,7 +53,7 @@ struct LiveActivityCoordinator: Sendable {
         )
 
         _ = try Activity<JomadoActivityAttributes>.request(
-            attributes: makeAttributes(occurrence: occurrence),
+            attributes: makeAttributes(occurrence: occurrence, mascotID: mascotID),
             content: content,
             pushType: nil,
             style: .standard,
@@ -93,19 +96,42 @@ struct LiveActivityCoordinator: Sendable {
         await activity.end(finalContent, dismissalPolicy: dismissal)
     }
 
+    func occurrenceIDs() -> Set<UUID> {
+        Set(
+            Activity<JomadoActivityAttributes>.activities.compactMap {
+                UUID(uuidString: $0.attributes.occurrenceID)
+            }
+        )
+    }
+
+    func cancelAll(except keepOccurrenceIDs: Set<UUID>) async {
+        for activity in Activity<JomadoActivityAttributes>.activities {
+            guard
+                let occurrenceID = UUID(uuidString: activity.attributes.occurrenceID),
+                !keepOccurrenceIDs.contains(occurrenceID)
+            else { continue }
+
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     private func activity(for occurrenceID: UUID) -> Activity<JomadoActivityAttributes>? {
         Activity<JomadoActivityAttributes>.activities.first {
             $0.attributes.occurrenceID == occurrenceID.uuidString
         }
     }
 
-    private func makeAttributes(occurrence: ReminderOccurrence) -> JomadoActivityAttributes {
+    private func makeAttributes(
+        occurrence: ReminderOccurrence,
+        mascotID: String
+    ) -> JomadoActivityAttributes {
         JomadoActivityAttributes(
             occurrenceID: occurrence.id.uuidString,
             routineID: occurrence.routineID.uuidString,
             routineType: occurrence.routineType,
             routineName: occurrence.routineName,
-            completionLabel: occurrence.completionLabel
+            completionLabel: occurrence.completionLabel,
+            mascotID: mascotID
         )
     }
 

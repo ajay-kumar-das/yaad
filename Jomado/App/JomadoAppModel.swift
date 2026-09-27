@@ -237,7 +237,7 @@ final class JomadoAppModel: ObservableObject {
 
         if !persistedUpdateApplied {
             occurrence = (try? ReminderStateMachine.apply(.completed, to: occurrence)) ?? occurrence
-            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+            await notificationScheduler.clear(occurrenceID: occurrence.id)
         }
 
         await refreshPresentation(at: .now, force: true)
@@ -317,7 +317,7 @@ final class JomadoAppModel: ObservableObject {
 
         if !persistedUpdateApplied {
             occurrence = (try? ReminderStateMachine.apply(.skipped, to: occurrence)) ?? occurrence
-            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+            await notificationScheduler.clear(occurrenceID: occurrence.id)
         }
 
         await liveActivityCoordinator.end(
@@ -379,7 +379,8 @@ final class JomadoAppModel: ObservableObject {
         do {
             try await liveActivityCoordinator.start(
                 occurrence: occurrence,
-                presentation: presentation
+                presentation: presentation,
+                mascotID: activeMascotID
             )
             systemMessage = liveActivityCoordinator.activitiesEnabled
                 ? "The Jomado Live Activity is active."

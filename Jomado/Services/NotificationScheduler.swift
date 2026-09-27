@@ -107,11 +107,23 @@ actor NotificationScheduler {
     func cancel(requestIdentifiers: [String]) {
         guard !requestIdentifiers.isEmpty else { return }
         center.removePendingNotificationRequests(withIdentifiers: requestIdentifiers)
+    }
+
+    func clear(requestIdentifiers: [String]) {
+        guard !requestIdentifiers.isEmpty else { return }
+        center.removePendingNotificationRequests(withIdentifiers: requestIdentifiers)
         center.removeDeliveredNotifications(withIdentifiers: requestIdentifiers)
     }
 
     func cancel(occurrenceID: UUID) {
         cancel(requestIdentifiers: [
+            requestIdentifier(occurrenceID: occurrenceID, isFollowUp: false),
+            requestIdentifier(occurrenceID: occurrenceID, isFollowUp: true)
+        ])
+    }
+
+    func clear(occurrenceID: UUID) {
+        clear(requestIdentifiers: [
             requestIdentifier(occurrenceID: occurrenceID, isFollowUp: false),
             requestIdentifier(occurrenceID: occurrenceID, isFollowUp: true)
         ])

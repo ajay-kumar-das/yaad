@@ -38,19 +38,22 @@ public struct JomadoActivityAttributes: ActivityAttributes, Sendable {
     public let routineType: RoutineType
     public let routineName: String
     public let completionLabel: String
+    public let mascotID: String
 
     public init(
         occurrenceID: String,
         routineID: String,
         routineType: RoutineType,
         routineName: String,
-        completionLabel: String
+        completionLabel: String,
+        mascotID: String
     ) {
         self.occurrenceID = occurrenceID
         self.routineID = routineID
         self.routineType = routineType
         self.routineName = routineName
         self.completionLabel = completionLabel
+        self.mascotID = mascotID
     }
 }
 

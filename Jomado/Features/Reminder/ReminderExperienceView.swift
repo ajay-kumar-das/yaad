@@ -10,6 +10,25 @@ struct ReminderExperienceView: View {
     private var content: ReminderContentItem { presentation.content }
     private var stageColor: Color { Color(jomadoHex: presentation.stage.accentHex) }
 
+    private var backgroundColors: [Color] {
+        switch presentation.stage {
+        case .normal:
+            [stageColor.opacity(0.34), Color(jomadoHex: "DFF8FF"), .white]
+        case .lightOverdue:
+            [Color(jomadoHex: "FFE58A"), Color(jomadoHex: "FFF1B8"), Color(jomadoHex: "FFF9E4")]
+        case .mediumOverdue:
+            [Color(jomadoHex: "FF9A3D"), Color(jomadoHex: "FFC078"), Color(jomadoHex: "FFF0DC")]
+        case .redZone:
+            [Color(jomadoHex: "FF4D5A"), Color(jomadoHex: "E3293F"), Color(jomadoHex: "A9122A")]
+        case .completed:
+            [Color(jomadoHex: "79D99A"), Color(jomadoHex: "DDF7E5"), .white]
+        }
+    }
+
+    private var strongUrgency: Bool {
+        presentation.stage == .mediumOverdue || presentation.stage == .redZone
+    }
+
     var body: some View {
         ZStack {
             reminderBackground
@@ -60,11 +79,7 @@ struct ReminderExperienceView: View {
     private var reminderBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    stageColor.opacity(0.34),
-                    Color(jomadoHex: "DFF8FF"),
-                    .white
-                ],
+                colors: backgroundColors,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -86,11 +101,11 @@ struct ReminderExperienceView: View {
     private var topBar: some View {
         HStack {
             HStack(spacing: 8) {
-                Image(systemName: "drop.fill")
-                    .foregroundStyle(JomadoTheme.cyan)
+                Image(systemName: model.occurrence.routineType.symbolName)
+                    .foregroundStyle(presentation.stage == .redZone ? .white : stageColor)
                 Text("JOMADO")
                     .font(.system(.headline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(JomadoTheme.navy)
+                    .foregroundStyle(presentation.stage == .redZone ? .white : JomadoTheme.navy)
             }
 
             Spacer()
@@ -104,7 +119,7 @@ struct ReminderExperienceView: View {
                     .frame(width: 44, height: 44)
                     .background(.white.opacity(0.85), in: Circle())
             }
-            .foregroundStyle(JomadoTheme.navy)
+            .foregroundStyle(presentation.stage == .redZone ? .white : JomadoTheme.navy)
             .accessibilityLabel("Close reminder without completing")
         }
         .padding(.top, 8)
@@ -160,6 +175,12 @@ struct ReminderExperienceView: View {
                 .padding(.top, 4)
             }
         }
+        .padding(.horizontal, strongUrgency ? 16 : 0)
+        .padding(.vertical, strongUrgency ? 16 : 0)
+        .background(
+            strongUrgency ? Color.white.opacity(0.90) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
     }
 
     private var actionControls: some View {
@@ -176,7 +197,9 @@ struct ReminderExperienceView: View {
             .foregroundStyle(.white)
             .background(
                 LinearGradient(
-                    colors: [JomadoTheme.cyan, JomadoTheme.blue],
+                    colors: presentation.stage == .normal
+                        ? [JomadoTheme.cyan, JomadoTheme.blue]
+                        : [stageColor, stageColor.opacity(0.78)],
                     startPoint: .leading,
                     endPoint: .trailing
                 ),

@@ -237,9 +237,33 @@ public extension ReminderIntensity {
 public extension CompanionMascot {
     var displayName: String {
         switch self {
-        case .momo: "Momo Blue"
-        case .momoMint: "Momo Mint"
-        case .momoViolet: "Momo Violet"
+        case .momo: "Momo Drop"
+        case .momoMint: "Momo Calm"
+        case .momoViolet: "Momo Move"
         }
+    }
+
+    var suitableRoutineTypes: Set<RoutineType> {
+        switch self {
+        case .momo:
+            [.hydration, .custom, .generic]
+        case .momoMint:
+            [.eyeCare, .breathing, .meditation, .yoga, .sleep, .custom, .generic]
+        case .momoViolet:
+            [.exercise, .stretching, .posture, .custom, .generic]
+        }
+    }
+
+    func isSuitable(for routineType: RoutineType) -> Bool {
+        suitableRoutineTypes.contains(routineType)
+    }
+
+    static func suitable(for routineType: RoutineType) -> [CompanionMascot] {
+        let values = allCases.filter { $0.isSuitable(for: routineType) }
+        return values.isEmpty ? [.momo] : values
+    }
+
+    static func preferred(for routineType: RoutineType) -> CompanionMascot {
+        suitable(for: routineType).first ?? .momo
     }
 }

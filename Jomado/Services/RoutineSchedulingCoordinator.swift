@@ -7,24 +7,30 @@ final class RoutineSchedulingCoordinator {
     private let modelContext: ModelContext
     private let notificationScheduler: NotificationScheduler
     private let alarmScheduler: AlarmScheduler
+    private let liveActivityCoordinator: LiveActivityCoordinator
     private let contentRepository: ContentRepository
     private let horizonDays: Int
     private let maximumPrimaryNotifications: Int
+    private let maximumScheduledLiveActivities: Int
 
     init(
         modelContext: ModelContext,
         notificationScheduler: NotificationScheduler = .shared,
         alarmScheduler: AlarmScheduler = .shared,
+        liveActivityCoordinator: LiveActivityCoordinator = LiveActivityCoordinator(),
         contentRepository: ContentRepository,
         horizonDays: Int = 7,
-        maximumPrimaryNotifications: Int = 48
+        maximumPrimaryNotifications: Int = 48,
+        maximumScheduledLiveActivities: Int = 4
     ) {
         self.modelContext = modelContext
         self.notificationScheduler = notificationScheduler
         self.alarmScheduler = alarmScheduler
+        self.liveActivityCoordinator = liveActivityCoordinator
         self.contentRepository = contentRepository
         self.horizonDays = horizonDays
         self.maximumPrimaryNotifications = maximumPrimaryNotifications
+        self.maximumScheduledLiveActivities = maximumScheduledLiveActivities
     }
 
     @discardableResult
@@ -89,7 +95,7 @@ final class RoutineSchedulingCoordinator {
         }
 
         try modelContext.save()
-        await notificationScheduler.cancel(requestIdentifiers: identifiers)
+        await notificationScheduler.clear(requestIdentifiers: identifiers)
         alarmScheduler.cancel(ids: alarmIDs)
         await reconcile(now: now)
     }
@@ -154,6 +160,9 @@ final class RoutineSchedulingCoordinator {
             // Always inspect pending notifications, even when authorization was revoked, so
             // reconciliation can remove stale or duplicate requests deterministically.
             let pendingNotifications = await notificationScheduler.pendingRequestIdentifiers()
+            let existingLiveActivityIDs = liveActivityCoordinator.occurrenceIDs()
+            var desiredLiveActivityIDs = Set<UUID>()
+            var scheduledLiveActivityCount = 0
             var selectionExposures = try fetchRecentContentExposures(now: now).map(\.exposure)
             var desiredAlarmIDs = Set<UUID>()
             var notificationCount = 0
@@ -170,6 +179,36 @@ final class RoutineSchedulingCoordinator {
                     selectionExposures: &selectionExposures
                 )
                 let domain = entity.domainOccurrence(for: item.routine)
+
+                if liveActivityCoordinator.activitiesEnabled,
+                   scheduledLiveActivityCount < maximumScheduledLiveActivities {
+                    desiredLiveActivityIDs.insert(entity.id)
+                    scheduledLiveActivityCount += 1
+
+                    if !existingLiveActivityIDs.contains(entity.id) {
+                        let livePresentation = ReminderPresentation(
+                            stage: .normal,
+                            content: content,
+                            statusText: ReminderPresentation.statusText(
+                                stage: .normal,
+                                dueDate: item.date,
+                                now: now
+                            )
+                        )
+
+                        do {
+                            try liveActivityCoordinator.schedule(
+                                occurrence: domain,
+                                presentation: livePresentation,
+                                mascotID: item.routine.mascotID(for: item.key)
+                            )
+                        } catch {
+                            #if DEBUG
+                            print("Live Activity scheduling failed for \(entity.id): \(error)")
+                            #endif
+                        }
+                    }
+                }
 
                 var deliveredByAlarm = false
                 if item.routine.deliveryMode == .alarmAndCompanion && canScheduleAlarm {
@@ -224,6 +263,11 @@ final class RoutineSchedulingCoordinator {
             // not accidentally cancel a valid AlarmKit follow-up as an orphan.
             let enabledRoutinesByID = Dictionary(uniqueKeysWithValues: routines.map { ($0.id, $0) })
             let unresolvedOccurrences = try fetchUnresolvedOccurrences()
+            desiredLiveActivityIDs.formUnion(
+                unresolvedOccurrences
+                    .filter { !$0.status.isTerminal }
+                    .map { $0.id }
+            )
             for entity in unresolvedOccurrences {
                 let followUpRequestID = notificationScheduler.requestIdentifier(
                     occurrenceID: entity.id,
@@ -295,6 +339,7 @@ final class RoutineSchedulingCoordinator {
 
             let orphanAlarmIDs = systemAlarmIDs.subtracting(desiredAlarmIDs)
             alarmScheduler.cancel(ids: orphanAlarmIDs)
+            await liveActivityCoordinator.cancelAll(except: desiredLiveActivityIDs)
 
             for routine in routines {
                 routine.lastReconciledAt = now
@@ -332,14 +377,14 @@ final class RoutineSchedulingCoordinator {
             occurrence = try ReminderStateMachine.apply(.completed, to: occurrence, at: now)
             occurrenceEntity.apply(occurrence)
             occurrenceEntity.followUpContentID = nil
-            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+            await notificationScheduler.clear(occurrenceID: occurrence.id)
             alarmScheduler.cancel(id: occurrence.id)
 
         case .remindLater:
             let followUp = now.addingTimeInterval(TimeInterval(max(1, routine.snoozeMinutes) * 60))
             occurrence = try ReminderStateMachine.apply(.snoozed(until: followUp), to: occurrence, at: now)
 
-            await notificationScheduler.cancel(occurrenceID: occurrence.id)
+            await notificationScheduler.clear(occurrenceID: occurrence.id)
             alarmScheduler.cancel(id: occurrence.id)
 
             guard routine.smartSnoozeEnabled, occurrence.snoozeCount <= routine.maxSnoozes else {
@@ -425,7 +470,7 @@ final class RoutineSchedulingCoordinator {
         occurrenceEntity.apply(occurrence)
         occurrenceEntity.followUpContentID = nil
         try modelContext.save()
-        await notificationScheduler.cancel(occurrenceID: occurrence.id)
+        await notificationScheduler.clear(occurrenceID: occurrence.id)
         alarmScheduler.cancel(id: occurrence.id)
         return occurrence
     }
