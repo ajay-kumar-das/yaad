@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 import SwiftUI
 
@@ -9,15 +10,28 @@ struct JomadoApp: App {
     private let modelContainer: ModelContainer
 
     init() {
+        let schema = Schema([
+            RoutineEntity.self,
+            ReminderOccurrenceEntity.self,
+            ContentExposureEntity.self
+        ])
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: Self.isRunningTests
+        )
+
         do {
             modelContainer = try ModelContainer(
-                for: RoutineEntity.self,
-                ReminderOccurrenceEntity.self,
-                ContentExposureEntity.self
+                for: schema,
+                configurations: [configuration]
             )
         } catch {
             fatalError("Unable to initialize Jomado local store: \(error)")
         }
+    }
+
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     var body: some Scene {

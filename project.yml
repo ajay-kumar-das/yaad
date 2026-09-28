@@ -101,7 +101,7 @@ schemes:
 
     test:
       config: Debug
-      gatherCoverageData: true
+      gatherCoverageData: false
       targets:
         - JomadoTests
 

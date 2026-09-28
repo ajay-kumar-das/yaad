@@ -46,7 +46,22 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
 
-      - name: Whole-module compiler diagnostics
+      - name: Prepare simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(
+            xcrun simctl list devices available -j |
+            python3 -c 'import json, sys; data = json.load(sys.stdin); runtimes = sorted((key for key in data["devices"] if ".iOS-" in key), key=lambda key: tuple(map(int, key.rsplit(".iOS-", 1)[1].split("-"))), reverse=True); devices = [device for runtime in runtimes for device in data["devices"][runtime] if device.get("isAvailable") and device["name"].startswith("iPhone")]; print(devices[0]["udid"] if devices else "")'
+          )"
+          test -n "$DEVICE_ID"
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          echo "DEBUG_DERIVED_DATA=$RUNNER_TEMP/jomado-debug-derived-data" >> "$GITHUB_ENV"
+
+          # Boot asynchronously so simulator startup overlaps the compiler pass.
+          xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
+
+      - name: Build for testing and compiler diagnostics
         id: compiler_diagnostics
         shell: bash
         run: |
@@ -54,54 +69,34 @@ jobs:
           set -o pipefail
           set +e
 
-          rm -f liveactivity-diagnostic.log app-diagnostic.log
+          rm -rf "$DEBUG_DERIVED_DATA"
+          rm -f compiler-diagnostic.log
 
-          echo "===== JomadoLiveActivity whole-module diagnostics ====="
           xcodebuild \
             -quiet \
             -project Jomado.xcodeproj \
-            -target JomadoLiveActivity \
+            -scheme Jomado \
             -configuration Debug \
-            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath "$DEBUG_DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_COMPILATION_MODE=wholemodule \
             SWIFT_STRICT_CONCURRENCY=complete \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            build 2>&1 | tee liveactivity-diagnostic.log
-          LIVE_STATUS=${PIPESTATUS[0]}
+            build-for-testing 2>&1 | tee compiler-diagnostic.log
+          BUILD_STATUS=${PIPESTATUS[0]}
 
-          echo
-          echo "===== Jomado app whole-module diagnostics ====="
-          xcodebuild \
-            -quiet \
-            -project Jomado.xcodeproj \
-            -target Jomado \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            CODE_SIGNING_ALLOWED=NO \
-            SWIFT_COMPILATION_MODE=wholemodule \
-            SWIFT_STRICT_CONCURRENCY=complete \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            build 2>&1 | tee app-diagnostic.log
-          APP_STATUS=${PIPESTATUS[0]}
-
-          echo
-          echo "===== Consolidated compiler diagnostics ====="
           DIAGNOSTICS="$(
-            grep -hE               'error:|warning:|fatal error:|risks causing data races|unable to type-check|BUILD FAILED'               liveactivity-diagnostic.log app-diagnostic.log || true
+            grep -hE \
+              'error:|warning:|fatal error:|risks causing data races|unable to type-check|BUILD FAILED' \
+              compiler-diagnostic.log || true
           )"
 
-          if [[ -n "$DIAGNOSTICS" ]]; then
-            printf '%s\n' "$DIAGNOSTICS"
-          else
-            echo "No compiler errors or warnings found."
-          fi
-
           {
-            echo "## Xcode whole-module diagnostics"
+            echo "## Xcode build-for-testing diagnostics"
             echo
-            echo "- JomadoLiveActivity exit status: $LIVE_STATUS"
-            echo "- Jomado app exit status: $APP_STATUS"
+            echo "- Exit status: $BUILD_STATUS"
+            echo "- App, Live Activity extension, and tests compiled in one pass"
             echo
             echo '```text'
             if [[ -n "$DIAGNOSTICS" ]]; then
@@ -112,48 +107,34 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$LIVE_STATUS" -ne 0 || "$APP_STATUS" -ne 0 ]]; then
-            exit 1
+          if [[ "$BUILD_STATUS" -ne 0 ]]; then
+            exit "$BUILD_STATUS"
           fi
 
-      - name: Upload compiler diagnostic logs
+      - name: Upload compiler diagnostic log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcode-compiler-diagnostics
-          path: |
-            liveactivity-diagnostic.log
-            app-diagnostic.log
+          path: compiler-diagnostic.log
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Build app and Live Activity
-        run: |
-          xcodebuild \
-            -project Jomado.xcodeproj \
-            -scheme Jomado \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Run unit tests
+      - name: Run unit tests without rebuilding
         shell: bash
         run: |
           set -euo pipefail
-          DEVICE_ID="$(
-            xcrun simctl list devices available -j |
-            python3 -c 'import json, sys; data = json.load(sys.stdin); runtimes = sorted((key for key in data["devices"] if ".iOS-" in key), key=lambda key: tuple(map(int, key.rsplit(".iOS-", 1)[1].split("-"))), reverse=True); devices = [device for runtime in runtimes for device in data["devices"][runtime] if device.get("isAvailable") and device["name"].startswith("iPhone")]; print(devices[0]["udid"] if devices else "")'
-          )"
-          test -n "$DEVICE_ID"
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
           xcodebuild \
             -project Jomado.xcodeproj \
             -scheme Jomado \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath "$DEBUG_DERIVED_DATA" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test-without-building
 
       - name: Build unsigned device IPA
         shell: bash
