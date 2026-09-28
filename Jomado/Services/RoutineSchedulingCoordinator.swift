@@ -58,8 +58,18 @@ final class RoutineSchedulingCoordinator {
 
     func update(routineID: UUID, draft: RoutineDraft, now: Date = .now) async throws {
         guard let routine = try fetchRoutine(id: routineID), routine.archivedAt == nil else { return }
+
+        let pendingNotificationIDs = try fetchOccurrences(routineID: routineID)
+            .filter { !$0.status.isTerminal }
+            .compactMap(\.notificationID)
+
         routine.apply(draft, now: now)
         try modelContext.save()
+
+        if !pendingNotificationIDs.isEmpty {
+            await notificationScheduler.cancel(requestIdentifiers: pendingNotificationIDs)
+        }
+
         await reconcile(now: now)
     }
 
@@ -251,7 +261,8 @@ final class RoutineSchedulingCoordinator {
                         try await notificationScheduler.schedule(
                             occurrence: domain,
                             content: content,
-                            at: item.date
+                            at: item.date,
+                            soundChoice: item.routine.notificationSound
                         )
                         notificationCount += 1
                     }
@@ -331,7 +342,8 @@ final class RoutineSchedulingCoordinator {
                         occurrence: domain,
                         content: followUpContent,
                         at: followUpDate,
-                        isFollowUp: true
+                        isFollowUp: true,
+                        soundChoice: routine.notificationSound
                     )
                     notificationCount += 1
                 }
@@ -356,6 +368,25 @@ final class RoutineSchedulingCoordinator {
         } catch {
             #if DEBUG
             print("Jomado reconciliation failed: \(error)")
+            #endif
+        }
+    }
+
+    func refreshNotificationConfiguration(now: Date = .now) async {
+        do {
+            let requestIdentifiers = try fetchUnresolvedOccurrences()
+                .compactMap(\.notificationID)
+
+            if !requestIdentifiers.isEmpty {
+                await notificationScheduler.cancel(
+                    requestIdentifiers: requestIdentifiers
+                )
+            }
+
+            await reconcile(now: now)
+        } catch {
+            #if DEBUG
+            print("Notification configuration refresh failed: \(error)")
             #endif
         }
     }
@@ -432,7 +463,8 @@ final class RoutineSchedulingCoordinator {
                         occurrence: occurrence,
                         content: followUpContent,
                         at: followUp,
-                        isFollowUp: true
+                        isFollowUp: true,
+                        soundChoice: routine.notificationSound
                     )
                 }
             }

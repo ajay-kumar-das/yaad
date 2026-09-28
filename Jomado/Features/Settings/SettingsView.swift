@@ -149,6 +149,7 @@ struct SettingsView: View {
 }
 
 private struct ReminderPreferencesView: View {
+    @EnvironmentObject private var model: JomadoAppModel
     @AppStorage("jomado.defaultPersonality") private var personalityRaw = ReminderPersonality.playful.rawValue
     @AppStorage("jomado.defaultIntensity") private var intensityRaw = ReminderIntensity.balanced.rawValue
     @AppStorage("jomado.language") private var language = "en"
@@ -247,6 +248,11 @@ private struct ReminderPreferencesView: View {
         .jomadoPageBackground()
         .navigationTitle("Reminder Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: defaultNotificationSoundRaw) { _, _ in
+            Task {
+                await model.refreshNotificationConfiguration()
+            }
+        }
     }
 
     private func settingCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {

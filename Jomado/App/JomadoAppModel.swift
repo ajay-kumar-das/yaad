@@ -93,6 +93,10 @@ final class JomadoAppModel: ObservableObject {
         await routineCoordinator?.reconcile()
     }
 
+    func refreshNotificationConfiguration() async {
+        await routineCoordinator?.refreshNotificationConfiguration()
+    }
+
     func saveRoutine(_ draft: RoutineDraft) async {
         do {
             _ = try await routineCoordinator?.save(draft)

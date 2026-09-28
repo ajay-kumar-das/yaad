@@ -59,13 +59,13 @@ actor NotificationScheduler {
         occurrence: ReminderOccurrence,
         content item: ReminderContentItem,
         at deliveryDate: Date,
-        isFollowUp: Bool = false
+        isFollowUp: Bool = false,
+        soundChoice: NotificationSoundChoice = .inherit
     ) async throws {
         let notification = UNMutableNotificationContent()
         notification.title = item.variants.notification.title
         notification.body = item.variants.notification.body
-        let soundEnabled = UserDefaults.standard.object(forKey: "jomado.soundEnabled") as? Bool ?? true
-        notification.sound = soundEnabled ? .default : nil
+        notification.sound = notificationSound(for: soundChoice)
         notification.categoryIdentifier = NotificationActionIdentifier.category
         notification.threadIdentifier = "routine.\(occurrence.routineID.uuidString)"
         notification.targetContentIdentifier = "occurrence.\(occurrence.id.uuidString)"
@@ -98,6 +98,39 @@ actor NotificationScheduler {
         )
 
         try await center.add(request)
+    }
+
+    private func notificationSound(
+        for choice: NotificationSoundChoice
+    ) -> UNNotificationSound? {
+        let defaults = UserDefaults.standard
+        let legacySoundEnabled =
+            defaults.object(forKey: "jomado.soundEnabled") as? Bool ?? true
+        let resolved = choice.resolved(
+            globalDefaultRaw: defaults.string(forKey: "jomado.defaultNotificationSound"),
+            legacySoundEnabled: legacySoundEnabled
+        )
+
+        switch resolved {
+        case .systemDefault, .inherit:
+            return .default
+        case .silent:
+            return nil
+        case .softChime, .brightBell, .gentlePop:
+            guard
+                let fileName = resolved.bundledFileName,
+                Bundle.main.url(
+                    forResource: (fileName as NSString).deletingPathExtension,
+                    withExtension: (fileName as NSString).pathExtension
+                ) != nil
+            else {
+                return .default
+            }
+
+            return UNNotificationSound(
+                named: UNNotificationSoundName(rawValue: fileName)
+            )
+        }
     }
 
     func pendingRequestIdentifiers() async -> Set<String> {

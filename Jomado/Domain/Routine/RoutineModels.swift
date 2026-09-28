@@ -66,6 +66,30 @@ enum NotificationSoundChoice: String, Codable, CaseIterable, Hashable, Sendable 
     }
 
     static var globalChoices: [Self] { allCases.filter { $0 != .inherit } }
+
+    var bundledFileName: String? {
+        switch self {
+        case .softChime: "jomado-soft-chime.wav"
+        case .brightBell: "jomado-bright-bell.wav"
+        case .gentlePop: "jomado-gentle-pop.wav"
+        case .inherit, .systemDefault, .silent: nil
+        }
+    }
+
+    func resolved(
+        globalDefaultRaw: String?,
+        legacySoundEnabled: Bool
+    ) -> Self {
+        guard self == .inherit else { return self }
+
+        if let globalDefaultRaw,
+           let global = Self(rawValue: globalDefaultRaw),
+           global != .inherit {
+            return global
+        }
+
+        return legacySoundEnabled ? .systemDefault : .silent
+    }
 }
 
 struct RoutineTemplate: Identifiable, Codable, Hashable, Sendable {
