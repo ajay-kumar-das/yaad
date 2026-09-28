@@ -80,7 +80,6 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath "$DEBUG_DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_COMPILATION_MODE=wholemodule \
             SWIFT_STRICT_CONCURRENCY=complete \
             COMPILER_INDEX_STORE_ENABLE=NO \
             build-for-testing 2>&1 | tee compiler-diagnostic.log
@@ -96,7 +95,7 @@ jobs:
             echo "## Xcode build-for-testing diagnostics"
             echo
             echo "- Exit status: $BUILD_STATUS"
-            echo "- App, Live Activity extension, and tests compiled in one pass"
+            echo "- App, Live Activity extension, and tests compiled once using the normal parallel Debug compiler"
             echo
             echo '```text'
             if [[ -n "$DIAGNOSTICS" ]]; then
