@@ -23,35 +23,16 @@ struct OnboardingFlowView: View {
         ZStack {
             JomadoTheme.pageGradient.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Color.clear
-                            .frame(height: 1)
-                            .id("onboarding-top")
+            GeometryReader { _ in
+                ViewThatFits(in: .vertical) {
+                    onboardingPage
 
-                        hero
-
-                        Group {
-                            switch step {
-                            case 1: welcomeContent
-                            case 2: profileContent
-                            case 3: focusContent
-                            case 4: permissionsContent
-                            default: allSetContent
-                            }
-                        }
-                        .id(step)
-                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
-                        .padding(.horizontal, 18)
-                        .padding(.top, step == 1 || step == 5 ? 20 : 12)
-                        .padding(.bottom, 24)
+                    ScrollView {
+                        onboardingPage
                     }
-                }
-                .onChange(of: step) { _, _ in
-                    DispatchQueue.main.async {
-                        proxy.scrollTo("onboarding-top", anchor: .top)
-                    }
+                    .id(step)
+                    .scrollIndicators(.hidden)
+                    .scrollBounceBehavior(.basedOnSize)
                 }
             }
         }
@@ -60,6 +41,28 @@ struct OnboardingFlowView: View {
         .sheet(isPresented: $showLearnMore) {
             learnMoreSheet
         }
+    }
+
+    private var onboardingPage: some View {
+        VStack(spacing: 0) {
+            hero
+
+            Group {
+                switch step {
+                case 1: welcomeContent
+                case 2: profileContent
+                case 3: focusContent
+                case 4: permissionsContent
+                default: allSetContent
+                }
+            }
+            .id(step)
+            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+            .padding(.horizontal, 18)
+            .padding(.top, step == 1 || step == 5 ? 16 : 8)
+            .padding(.bottom, 14)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var hero: some View {
@@ -100,16 +103,30 @@ struct OnboardingFlowView: View {
                 cue: step == 5 ? .celebrate : (step == 4 ? .gentleBounce : .wave),
                 accessibilityLabel: step == 5 ? "Momo celebrates that setup is complete" : "Momo welcomes you to Jomado"
             )
-            .frame(width: step == 1 || step == 5 ? 224 : 142, height: step == 1 || step == 5 ? 224 : 142)
-            .offset(x: step == 1 ? -34 : (step == 5 ? 0 : 34), y: step == 1 ? 52 : 48)
+            .frame(
+                width: step == 1 || step == 5 ? 210 : (step == 4 ? 166 : 126),
+                height: step == 1 || step == 5 ? 210 : (step == 4 ? 166 : 126)
+            )
+            .offset(
+                x: step == 1 ? -26 : (step == 5 ? 0 : (step == 4 ? 36 : 28)),
+                y: step == 1 ? 48 : (step == 4 ? 42 : 38)
+            )
 
             if step != 5 {
                 JomadoSpeechBubble(text: heroMessage)
-                    .frame(maxWidth: step == 1 ? 190 : 176)
-                    .offset(x: step == 1 ? 102 : -86, y: step == 1 ? 82 : 70)
+                    .frame(maxWidth: step == 1 ? 184 : (step == 4 ? 168 : 150))
+                    .offset(
+                        x: step == 1 ? 98 : (step == 4 ? -82 : -70),
+                        y: step == 1 ? 78 : (step == 4 ? 54 : 48)
+                    )
             }
         }
-        .frame(height: step == 1 || step == 5 ? 310 : 202)
+        .frame(
+            height: step == 1 ? 282
+                : (step == 2 ? 164
+                    : (step == 3 ? 150
+                        : (step == 4 ? 218 : 270)))
+        )
     }
 
     private var heroMessage: String {
@@ -122,7 +139,7 @@ struct OnboardingFlowView: View {
     }
 
     private var welcomeContent: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 14) {
             onboardingTitle("Build healthy", accent: "daily habits")
 
             Text("Jomado helps you take care of yourself with friendly reminders and gentle support for a healthier, happier you.")
@@ -134,13 +151,13 @@ struct OnboardingFlowView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
                 ForEach(welcomeRoutines.indices, id: \.self) { index in
                     let item = welcomeRoutines[index]
-                    VStack(spacing: 7) {
-                        JomadoIconBadge(symbol: item.1, color: item.2, size: 50)
+                    VStack(spacing: 5) {
+                        JomadoIconBadge(symbol: item.1, color: item.2, size: 44)
                         Text(item.0)
                             .font(.system(.caption, design: .rounded, weight: .bold))
                             .foregroundStyle(JomadoTheme.navy)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 88)
+                    .frame(maxWidth: .infinity, minHeight: 76)
                     .background(item.2.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
@@ -157,142 +174,170 @@ struct OnboardingFlowView: View {
     }
 
     private var profileContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             onboardingTitle("Tell us a bit", accent: "about you!")
-            Text("A few quick details help Jomado give you more personalized reminders and support.")
-                .onboardingSubtitle()
+            Text("A few quick details help Jomado personalize your reminders.")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(JomadoTheme.secondaryText)
+                .multilineTextAlignment(.center)
 
-            profileCard(title: "How old are you?", subtitle: "This helps us tailor your experience.") {
-                Picker("Age range", selection: $ageRange) {
-                    ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55–64", "65+"], id: \.self) {
-                        Text($0).tag($0)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(JomadoTheme.navy)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 50)
-                .background(JomadoTheme.sky.opacity(0.52), in: RoundedRectangle(cornerRadius: 14))
-            }
+            compactOnboardingCard {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("How old are you?")
+                        .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                        .foregroundStyle(JomadoTheme.navy)
 
-            profileCard(title: "What’s your gender?", subtitle: "Optional — choose what fits you.") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(["Woman", "Man", "Non-binary"], id: \.self) { option in
-                        choiceButton(title: option, symbol: "person.fill", selected: gender == option) {
-                            gender = option
+                    Picker("Age range", selection: $ageRange) {
+                        ForEach(["Under 18", "18–24", "25–34", "35–44", "45–54", "55–64", "65+"], id: \.self) {
+                            Text($0).tag($0)
                         }
                     }
+                    .pickerStyle(.menu)
+                    .tint(JomadoTheme.navy)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 42)
+                    .background(
+                        JomadoTheme.sky.opacity(0.48),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    )
                 }
-                HStack(spacing: 8) {
-                    choiceButton(title: "Self describe", symbol: "pencil", selected: gender == "Self describe") {
-                        gender = "Self describe"
-                    }
-                    choiceButton(title: "Prefer not to say", symbol: "hand.raised.fill", selected: gender == "Prefer not to say") {
-                        gender = "Prefer not to say"
+            }
+
+            compactOnboardingCard {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("What’s your gender?")
+                        .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                        .foregroundStyle(JomadoTheme.navy)
+
+                    HStack(spacing: 7) {
+                        genderChoice(title: "Woman", glyph: "♀", color: Color(jomadoHex: "E968A8"))
+                        genderChoice(title: "Man", glyph: "♂", color: JomadoTheme.blue)
+                        genderChoice(title: "Non-binary", glyph: "⚧", color: Color(jomadoHex: "7C5CFC"))
                     }
                 }
             }
 
-            profileCard(title: "What are your wellness goals?", subtitle: "Choose all that apply. You can change these later.") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
-                    ForEach(goalOptions) { goal in
-                        choiceButton(
-                            title: goal.title,
-                            symbol: goal.symbol,
-                            selected: selectedGoals.contains(goal.title)
-                        ) {
-                            if selectedGoals.contains(goal.title) {
-                                selectedGoals.remove(goal.title)
-                            } else {
-                                selectedGoals.insert(goal.title)
+            compactOnboardingCard {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("What are your wellness goals?")
+                        .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                        .foregroundStyle(JomadoTheme.navy)
+
+                    LazyVGrid(
+                        columns: [GridItem(.flexible()), GridItem(.flexible())],
+                        spacing: 6
+                    ) {
+                        ForEach(goalOptions) { goal in
+                            choiceButton(
+                                title: goal.title,
+                                symbol: goal.symbol,
+                                selected: selectedGoals.contains(goal.title)
+                            ) {
+                                if selectedGoals.contains(goal.title) {
+                                    selectedGoals.remove(goal.title)
+                                } else {
+                                    selectedGoals.insert(goal.title)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Label("These details stay on your device and help personalize your experience.", systemImage: "lock.fill")
-                .font(.system(.caption, design: .rounded, weight: .semibold))
-                .foregroundStyle(JomadoTheme.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-
-            nextButton(title: "Continue", target: 3)
+            nextButton(title: "Next", target: 3)
         }
     }
 
     private var focusContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 8) {
             onboardingTitle("Choose your", accent: "focus areas")
-            Text("Select the habits you’d like to build. You can always change these later.")
-                .onboardingSubtitle()
+            Text("Select the habits you’d like to build. You can change these later.")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(JomadoTheme.secondaryText)
+                .multilineTextAlignment(.center)
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            LazyVGrid(
+                columns: [GridItem(.flexible()), GridItem(.flexible())],
+                spacing: 8
+            ) {
                 ForEach(focusRoutines, id: \.self) { routine in
+                    let selected = selectedRoutines.contains(routine)
+                    let accent = Color(jomadoHex: routine.accentHex)
+
                     Button {
-                        if selectedRoutines.contains(routine) {
+                        if selected {
                             selectedRoutines.remove(routine)
                         } else {
                             selectedRoutines.insert(routine)
                         }
                     } label: {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 8) {
                             JomadoIconBadge(
                                 symbol: routine.symbolName,
-                                color: Color(jomadoHex: routine.accentHex),
-                                size: 48
+                                color: accent,
+                                size: 40
                             )
-                            VStack(alignment: .leading, spacing: 3) {
+
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(routine.displayName)
-                                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                                    .font(.system(.caption, design: .rounded, weight: .heavy))
+                                    .foregroundStyle(JomadoTheme.navy)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.68)
-                                    .allowsTightening(true)
+                                    .minimumScaleFactor(0.76)
+
                                 Text(focusSubtitle(for: routine))
-                                    .font(.system(.caption2, design: .rounded))
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
                                     .foregroundStyle(JomadoTheme.secondaryText)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.68)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
+
                             Spacer(minLength: 0)
-                            Image(systemName: selectedRoutines.contains(routine) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedRoutines.contains(routine) ? JomadoTheme.cyan : Color.gray.opacity(0.35))
                         }
-                        .foregroundStyle(JomadoTheme.navy)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, minHeight: 84)
-                        .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+                        .background(
+                            selected ? accent.opacity(0.14) : Color.white.opacity(0.92),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        )
                         .overlay {
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(selectedRoutines.contains(routine) ? JomadoTheme.cyan : .clear, lineWidth: 1.5)
+                            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                .stroke(
+                                    selected ? accent : Color.gray.opacity(0.12),
+                                    lineWidth: selected ? 2 : 1
+                                )
                         }
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            nextButton(title: "Continue", target: 4)
+            nextButton(title: "Next", target: 4)
 
             Button("Maybe later") {
                 selectedRoutines.removeAll()
                 step = 4
             }
-            .font(.system(.body, design: .rounded, weight: .bold))
+            .font(.system(.subheadline, design: .rounded, weight: .bold))
             .foregroundStyle(JomadoTheme.blue)
-            .frame(minHeight: 44)
+            .frame(minHeight: 34)
         }
     }
 
     private var permissionsContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             onboardingTitle("Let’s get Jomado", accent: "ready to help you!")
-            Text("These permissions help Jomado send reminders, keep you on track, and show timely updates — so you never miss a chance to take care of yourself.")
-                .onboardingSubtitle()
+            Text("These permissions help Jomado send reminders, keep you on track, and show timely updates.")
+                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                .foregroundStyle(JomadoTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
 
             permissionRow(
                 title: "Notifications",
-                subtitle: "Friendly reminders, motivational messages, and progress updates.",
+                subtitle: "Friendly reminders, motivation, and progress updates.",
                 symbol: "bell.fill",
                 color: Color(jomadoHex: "FF4D5A"),
                 status: notificationsEnabled ? "Allowed" : "Not enabled",
@@ -301,7 +346,7 @@ struct OnboardingFlowView: View {
 
             permissionRow(
                 title: "Alarms & Alerts",
-                subtitle: "Optional sound reminders for important routines.",
+                subtitle: "Sound reminders so you don’t miss important routines.",
                 symbol: "alarm.fill",
                 color: JomadoTheme.blue,
                 status: alarmEnabled ? "Allowed" : "Not enabled",
@@ -310,7 +355,7 @@ struct OnboardingFlowView: View {
 
             permissionRow(
                 title: "Live Activities",
-                subtitle: "Show your next reminder on the Lock Screen and Dynamic Island.",
+                subtitle: "Show your next reminder on the Lock Screen.",
                 symbol: "iphone.gen3",
                 color: Color(jomadoHex: "20C8B4"),
                 status: model.liveActivitiesEnabled ? "Available" : "Disabled",
@@ -334,7 +379,7 @@ struct OnboardingFlowView: View {
             Button("Maybe Later") { step = 5 }
                 .font(.system(.body, design: .rounded, weight: .bold))
                 .foregroundStyle(JomadoTheme.blue)
-                .frame(maxWidth: .infinity, minHeight: 50)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .background(.white.opacity(0.76), in: Capsule())
         }
     }
@@ -450,9 +495,9 @@ struct OnboardingFlowView: View {
             Text(accent)
                 .foregroundStyle(JomadoTheme.blue)
         }
-        .font(.system(size: 32, weight: .heavy, design: .rounded))
-        .lineLimit(1)
-        .minimumScaleFactor(0.72)
+        .font(.system(size: 34, weight: .heavy, design: .rounded))
+        .lineLimit(2)
+        .minimumScaleFactor(0.82)
         .allowsTightening(true)
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
@@ -488,6 +533,55 @@ struct OnboardingFlowView: View {
         .jomadoCard()
     }
 
+    private func compactOnboardingCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color.white.opacity(0.82),
+                in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+            )
+    }
+
+    private func genderChoice(
+        title: String,
+        glyph: String,
+        color: Color
+    ) -> some View {
+        let selected = gender == title
+
+        return Button {
+            gender = title
+        } label: {
+            VStack(spacing: 3) {
+                Text(glyph)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(color)
+
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(JomadoTheme.navy)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(
+                selected ? color.opacity(0.14) : Color.white,
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(
+                        selected ? color : Color.gray.opacity(0.12),
+                        lineWidth: selected ? 2 : 1
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     private func choiceButton(
         title: String,
         symbol: String,
@@ -495,25 +589,32 @@ struct OnboardingFlowView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: symbol)
-                    .foregroundStyle(selected ? JomadoTheme.cyan : JomadoTheme.secondaryText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(selected ? JomadoTheme.blue : JomadoTheme.secondaryText)
+
                 Text(title)
-                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(JomadoTheme.navy)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.68)
+                    .minimumScaleFactor(0.72)
                     .allowsTightening(true)
+
                 Spacer(minLength: 0)
-                Image(systemName: selected ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(selected ? JomadoTheme.cyan : Color.gray.opacity(0.35))
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(selected ? JomadoTheme.sky.opacity(0.72) : Color.white, in: RoundedRectangle(cornerRadius: 15))
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(
+                selected ? JomadoTheme.sky.opacity(0.82) : Color.white,
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 15)
-                    .stroke(selected ? JomadoTheme.cyan : Color.gray.opacity(0.14), lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(
+                        selected ? JomadoTheme.blue : Color.gray.opacity(0.12),
+                        lineWidth: selected ? 2 : 1
+                    )
             }
         }
         .buttonStyle(.plain)
@@ -541,12 +642,16 @@ struct OnboardingFlowView: View {
             Text(status)
                 .font(.system(.caption2, design: .rounded, weight: .bold))
                 .foregroundStyle(enabled ? JomadoTheme.success : Color(jomadoHex: "E77B16"))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
                 .background(
                     (enabled ? JomadoTheme.success : Color(jomadoHex: "FFB020")).opacity(0.12),
                     in: Capsule()
                 )
+
+            Image(systemName: "chevron.right")
+                .font(.system(.caption, weight: .bold))
+                .foregroundStyle(JomadoTheme.secondaryText)
         }
         .jomadoCard()
     }
@@ -585,17 +690,17 @@ struct OnboardingFlowView: View {
 
     private func focusSubtitle(for routine: RoutineType) -> String {
         switch routine {
-        case .hydration: "Drink more water"
-        case .exercise: "Move your body"
-        case .stretching: "Feel looser"
-        case .eyeCare: "Rest your eyes"
-        case .posture: "Sit and stand better"
-        case .breathing: "Find calm"
-        case .meditation: "Be present"
-        case .yoga: "Build balance"
-        case .sleep: "Rest better"
-        case .custom: "Create your own"
-        case .generic: "Build a habit"
+        case .hydration: "Drink more water daily."
+        case .exercise: "Move your body more."
+        case .stretching: "Feel looser and less tense."
+        case .eyeCare: "Give your eyes a break."
+        case .posture: "Sit and stand healthier."
+        case .breathing: "Find calm in every breath."
+        case .meditation: "Be present and centered."
+        case .yoga: "Build strength and balance."
+        case .sleep: "Rest better and feel brighter."
+        case .custom: "Create your own habit."
+        case .generic: "Build a healthy habit."
         }
     }
 
@@ -624,9 +729,7 @@ struct OnboardingFlowView: View {
             OnboardingChoice(title: "Reduce screen strain", symbol: "laptopcomputer"),
             OnboardingChoice(title: "Improve focus", symbol: "brain.head.profile"),
             OnboardingChoice(title: "Manage stress", symbol: "leaf.fill"),
-            OnboardingChoice(title: "Build consistency", symbol: "chart.bar.fill"),
-            OnboardingChoice(title: "Improve sleep", symbol: "moon.stars.fill"),
-            OnboardingChoice(title: "Improve mobility", symbol: "figure.flexibility")
+            OnboardingChoice(title: "Build consistency", symbol: "chart.bar.fill")
         ]
     }
 }
