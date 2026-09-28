@@ -289,7 +289,8 @@ final class JomadoAppModel: ObservableObject {
                     occurrence: occurrence,
                     content: presentation.content,
                     at: followUp,
-                    isFollowUp: true
+                    isFollowUp: true,
+                    mascotID: activeMascotID
                 )
                 systemMessage = "Reminder moved by \(minutes) minutes. It is still incomplete."
             } catch {
@@ -342,7 +343,8 @@ final class JomadoAppModel: ObservableObject {
             try await notificationScheduler.schedule(
                 occurrence: occurrence,
                 content: presentation.content,
-                at: .now.addingTimeInterval(5)
+                at: .now.addingTimeInterval(5),
+                mascotID: activeMascotID
             )
             systemMessage = "A preview notification will arrive in about 5 seconds."
         } catch {
