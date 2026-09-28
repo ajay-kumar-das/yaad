@@ -189,6 +189,7 @@ final class RoutineSchedulingCoordinator {
                     selectionExposures: &selectionExposures
                 )
                 let domain = entity.domainOccurrence(for: item.routine)
+                let mascotID = item.routine.mascotID(for: item.key)
 
                 if liveActivityCoordinator.activitiesEnabled,
                    scheduledLiveActivityCount < maximumScheduledLiveActivities {
@@ -207,11 +208,19 @@ final class RoutineSchedulingCoordinator {
                         )
 
                         do {
-                            try liveActivityCoordinator.schedule(
-                                occurrence: domain,
-                                presentation: livePresentation,
-                                mascotID: item.routine.mascotID(for: item.key)
-                            )
+                            if item.date.timeIntervalSince(now) <= 5 * 60 {
+                                try await liveActivityCoordinator.start(
+                                    occurrence: domain,
+                                    presentation: livePresentation,
+                                    mascotID: mascotID
+                                )
+                            } else {
+                                try liveActivityCoordinator.schedule(
+                                    occurrence: domain,
+                                    presentation: livePresentation,
+                                    mascotID: mascotID
+                                )
+                            }
                         } catch {
                             #if DEBUG
                             print("Live Activity scheduling failed for \(entity.id): \(error)")
@@ -262,7 +271,8 @@ final class RoutineSchedulingCoordinator {
                             occurrence: domain,
                             content: content,
                             at: item.date,
-                            soundChoice: item.routine.notificationSound
+                            soundChoice: item.routine.notificationSound,
+                            mascotID: mascotID
                         )
                         notificationCount += 1
                     }
@@ -343,7 +353,8 @@ final class RoutineSchedulingCoordinator {
                         content: followUpContent,
                         at: followUpDate,
                         isFollowUp: true,
-                        soundChoice: routine.notificationSound
+                        soundChoice: routine.notificationSound,
+                        mascotID: routine.mascotID(for: entity.occurrenceKey)
                     )
                     notificationCount += 1
                 }
@@ -464,7 +475,8 @@ final class RoutineSchedulingCoordinator {
                         content: followUpContent,
                         at: followUp,
                         isFollowUp: true,
-                        soundChoice: routine.notificationSound
+                        soundChoice: routine.notificationSound,
+                        mascotID: routine.mascotID(for: occurrenceEntity.occurrenceKey)
                     )
                 }
             }

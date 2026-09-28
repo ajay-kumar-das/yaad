@@ -40,6 +40,8 @@ targets:
     dependencies:
       - target: JomadoLiveActivity
         embed: true
+      - target: JomadoNotificationContent
+        embed: true
 
     settings:
       base:
@@ -66,6 +68,25 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ajaydas.jomado.liveactivity
         INFOPLIST_FILE: Config/JomadoLiveActivity-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
+  JomadoNotificationContent:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+
+    sources:
+      - path: JomadoNotificationContent
+      - path: Shared
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ajaydas.jomado.notificationcontent
+        INFOPLIST_FILE: Config/JomadoNotificationContent-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"

@@ -60,7 +60,8 @@ actor NotificationScheduler {
         content item: ReminderContentItem,
         at deliveryDate: Date,
         isFollowUp: Bool = false,
-        soundChoice: NotificationSoundChoice = .inherit
+        soundChoice: NotificationSoundChoice = .inherit,
+        mascotID: String
     ) async throws {
         let notification = UNMutableNotificationContent()
         notification.title = item.variants.notification.title
@@ -72,6 +73,10 @@ actor NotificationScheduler {
         notification.userInfo = [
             "occurrenceID": occurrence.id.uuidString,
             "routineID": occurrence.routineID.uuidString,
+            "routineType": occurrence.routineType.rawValue,
+            "routineName": occurrence.routineName,
+            "mascotID": mascotID,
+            "completionLabel": occurrence.completionLabel,
             "deepLink": "jomado://occurrence/\(occurrence.id.uuidString)"
         ]
 

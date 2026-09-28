@@ -23,24 +23,35 @@ struct OnboardingFlowView: View {
         ZStack {
             JomadoTheme.pageGradient.ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    hero
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: 1)
+                            .id("onboarding-top")
 
-                    Group {
-                        switch step {
-                        case 1: welcomeContent
-                        case 2: profileContent
-                        case 3: focusContent
-                        case 4: permissionsContent
-                        default: allSetContent
+                        hero
+
+                        Group {
+                            switch step {
+                            case 1: welcomeContent
+                            case 2: profileContent
+                            case 3: focusContent
+                            case 4: permissionsContent
+                            default: allSetContent
+                            }
                         }
+                        .id(step)
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+                        .padding(.horizontal, 18)
+                        .padding(.top, step == 1 || step == 5 ? 20 : 12)
+                        .padding(.bottom, 24)
                     }
-                    .id(step)
-                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
-                    .padding(.horizontal, 18)
-                    .padding(.top, step == 1 || step == 5 ? 20 : 12)
-                    .padding(.bottom, 24)
+                }
+                .onChange(of: step) { _, _ in
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("onboarding-top", anchor: .top)
+                    }
                 }
             }
         }
@@ -166,7 +177,7 @@ struct OnboardingFlowView: View {
             }
 
             profileCard(title: "What’s your gender?", subtitle: "Optional — choose what fits you.") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                     ForEach(["Woman", "Man", "Non-binary"], id: \.self) { option in
                         choiceButton(title: option, symbol: "person.fill", selected: gender == option) {
                             gender = option
@@ -235,10 +246,14 @@ struct OnboardingFlowView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(routine.displayName)
                                     .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.68)
+                                    .allowsTightening(true)
                                 Text(focusSubtitle(for: routine))
                                     .font(.system(.caption2, design: .rounded))
                                     .foregroundStyle(JomadoTheme.secondaryText)
-                                    .lineLimit(2)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.68)
                             }
                             Spacer(minLength: 0)
                             Image(systemName: selectedRoutines.contains(routine) ? "checkmark.circle.fill" : "circle")
@@ -435,7 +450,10 @@ struct OnboardingFlowView: View {
             Text(accent)
                 .foregroundStyle(JomadoTheme.blue)
         }
-        .font(.system(size: 36, weight: .heavy, design: .rounded))
+        .font(.system(size: 32, weight: .heavy, design: .rounded))
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
+        .allowsTightening(true)
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
