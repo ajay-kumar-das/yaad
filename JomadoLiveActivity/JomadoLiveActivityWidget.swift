@@ -184,13 +184,9 @@ private struct LiveStatusText: View {
             if isCompleted {
                 Text("Done")
             } else {
-                Text(
-                    timerInterval: dueDate...dueDate.addingTimeInterval(8 * 60 * 60),
-                    countsDown: false,
-                    showsHours: true
-                )
-                .monospacedDigit()
-                .accessibilityLabel("Time since reminder was due")
+                Text(dueDate, style: .timer)
+                    .monospacedDigit()
+                    .accessibilityLabel("Reminder timing")
             }
         }
         .frame(width: width, alignment: .trailing)

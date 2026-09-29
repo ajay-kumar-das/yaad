@@ -32,4 +32,12 @@ final class NotificationSoundChoiceTests: XCTestCase {
             .silent
         )
     }
+
+    func testBirdWhisperIsSelectableAndBundled() {
+        XCTAssertTrue(NotificationSoundChoice.globalChoices.contains(.birdWhisper))
+        XCTAssertEqual(
+            NotificationSoundChoice.birdWhisper.bundledFileName,
+            "jomado-bird-whisper.wav"
+        )
+    }
 }

@@ -121,7 +121,7 @@ actor NotificationScheduler {
             return .default
         case .silent:
             return nil
-        case .softChime, .brightBell, .gentlePop:
+        case .softChime, .brightBell, .gentlePop, .birdWhisper:
             guard
                 let fileName = resolved.bundledFileName,
                 Bundle.main.url(

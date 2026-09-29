@@ -52,7 +52,7 @@ enum RoutineDeliveryMode: String, Codable, CaseIterable, Hashable, Sendable {
 }
 
 enum NotificationSoundChoice: String, Codable, CaseIterable, Hashable, Sendable {
-    case inherit, systemDefault, softChime, brightBell, gentlePop, silent
+    case inherit, systemDefault, softChime, brightBell, gentlePop, birdWhisper, silent
 
     var displayName: String {
         switch self {
@@ -61,6 +61,7 @@ enum NotificationSoundChoice: String, Codable, CaseIterable, Hashable, Sendable 
         case .softChime: "Soft chime"
         case .brightBell: "Bright bell"
         case .gentlePop: "Gentle pop"
+        case .birdWhisper: "Bird whisper"
         case .silent: "Silent"
         }
     }
@@ -72,6 +73,7 @@ enum NotificationSoundChoice: String, Codable, CaseIterable, Hashable, Sendable 
         case .softChime: "jomado-soft-chime.wav"
         case .brightBell: "jomado-bright-bell.wav"
         case .gentlePop: "jomado-gentle-pop.wav"
+        case .birdWhisper: "jomado-bird-whisper.wav"
         case .inherit, .systemDefault, .silent: nil
         }
     }

@@ -2,6 +2,17 @@ import Foundation
 import SwiftData
 import UserNotifications
 
+enum RoutineSchedulingActionError: LocalizedError {
+    case tooEarly(Date)
+
+    var errorDescription: String? {
+        switch self {
+        case .tooEarly(let availableAt):
+            return "This reminder becomes actionable at \(availableAt.formatted(date: .omitted, time: .shortened))."
+        }
+    }
+}
+
 @MainActor
 final class RoutineSchedulingCoordinator {
     private let modelContext: ModelContext
@@ -21,7 +32,7 @@ final class RoutineSchedulingCoordinator {
         contentRepository: ContentRepository,
         horizonDays: Int = 7,
         maximumPrimaryNotifications: Int = 48,
-        maximumScheduledLiveActivities: Int = 4
+        maximumScheduledLiveActivities: Int = 1
     ) {
         self.modelContext = modelContext
         self.notificationScheduler = notificationScheduler
@@ -192,41 +203,34 @@ final class RoutineSchedulingCoordinator {
                 let mascotID = item.routine.mascotID(for: item.key)
 
                 if liveActivityCoordinator.activitiesEnabled,
+                   existingLiveActivityIDs.isEmpty,
                    scheduledLiveActivityCount < maximumScheduledLiveActivities {
                     desiredLiveActivityIDs.insert(entity.id)
                     scheduledLiveActivityCount += 1
 
-                    if !existingLiveActivityIDs.contains(entity.id) {
-                        let livePresentation = ReminderPresentation(
+                    let livePresentation = ReminderPresentation(
+                        stage: .normal,
+                        content: content,
+                        statusText: ReminderPresentation.statusText(
                             stage: .normal,
-                            content: content,
-                            statusText: ReminderPresentation.statusText(
-                                stage: .normal,
-                                dueDate: item.date,
-                                now: now
-                            )
+                            dueDate: item.date,
+                            now: now
                         )
+                    )
 
-                        do {
-                            if item.date.timeIntervalSince(now) <= 5 * 60 {
-                                try await liveActivityCoordinator.start(
-                                    occurrence: domain,
-                                    presentation: livePresentation,
-                                    mascotID: mascotID
-                                )
-                            } else {
-                                try liveActivityCoordinator.schedule(
-                                    occurrence: domain,
-                                    presentation: livePresentation,
-                                    mascotID: mascotID
-                                )
-                            }
-                        } catch {
-                            #if DEBUG
-                            print("Live Activity scheduling failed for \(entity.id): \(error)")
-                            #endif
-                        }
+                    do {
+                        try await liveActivityCoordinator.start(
+                            occurrence: domain,
+                            presentation: livePresentation,
+                            mascotID: mascotID
+                        )
+                    } catch {
+                        #if DEBUG
+                        print("Live Activity start failed for \(entity.id): \(error)")
+                        #endif
                     }
+                } else if existingLiveActivityIDs.contains(entity.id) {
+                    desiredLiveActivityIDs.insert(entity.id)
                 }
 
                 var deliveredByAlarm = false
@@ -416,6 +420,11 @@ final class RoutineSchedulingCoordinator {
 
         switch event.action {
         case .completed:
+            try requireActionWindowOpen(
+                occurrence: occurrence,
+                routine: routine,
+                now: now
+            )
             occurrence = try ReminderStateMachine.apply(.completed, to: occurrence, at: now)
             occurrenceEntity.apply(occurrence)
             occurrenceEntity.followUpContentID = nil
@@ -423,6 +432,11 @@ final class RoutineSchedulingCoordinator {
             alarmScheduler.cancel(id: occurrence.id)
 
         case .remindLater:
+            try requireActionWindowOpen(
+                occurrence: occurrence,
+                routine: routine,
+                now: now
+            )
             let followUp = now.addingTimeInterval(TimeInterval(max(1, routine.snoozeMinutes) * 60))
             occurrence = try ReminderStateMachine.apply(.snoozed(until: followUp), to: occurrence, at: now)
 
@@ -510,6 +524,11 @@ final class RoutineSchedulingCoordinator {
 
         var occurrence = occurrenceEntity.domainOccurrence(for: routine)
         guard !occurrence.status.isTerminal else { return occurrence }
+        try requireActionWindowOpen(
+            occurrence: occurrence,
+            routine: routine,
+            now: now
+        )
         occurrence = try ReminderStateMachine.apply(.skipped, to: occurrence, at: now)
         occurrenceEntity.apply(occurrence)
         occurrenceEntity.followUpContentID = nil
@@ -529,7 +548,12 @@ final class RoutineSchedulingCoordinator {
         else { return nil }
 
         var occurrence = occurrenceEntity.domainOccurrence(for: routine)
-        if !occurrence.status.isTerminal {
+        if !occurrence.status.isTerminal,
+           RoutineSchedulePlanner.canTakeAction(
+               for: routine.instance,
+               occurrenceDate: occurrence.dueDate,
+               now: now
+           ) {
             occurrence = try ReminderStateMachine.apply(.opened, to: occurrence, at: now)
             occurrenceEntity.apply(occurrence)
             try modelContext.save()
@@ -539,6 +563,20 @@ final class RoutineSchedulingCoordinator {
 
     func routine(for id: UUID) throws -> RoutineEntity? {
         try fetchRoutine(id: id)
+    }
+
+    private func requireActionWindowOpen(
+        occurrence: ReminderOccurrence,
+        routine: RoutineEntity,
+        now: Date
+    ) throws {
+        let availableAt = RoutineSchedulePlanner.actionAvailableAt(
+            for: routine.instance,
+            occurrenceDate: occurrence.dueDate
+        )
+        guard now >= availableAt else {
+            throw RoutineSchedulingActionError.tooEarly(availableAt)
+        }
     }
 
     private func content(

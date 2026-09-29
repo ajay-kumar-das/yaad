@@ -185,6 +185,16 @@ struct ReminderExperienceView: View {
 
     private var actionControls: some View {
         VStack(spacing: 12) {
+            if let lockText = model.reminderActionLockText {
+                Label(lockText, systemImage: "lock.fill")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(JomadoTheme.navy)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(12)
+                    .background(.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
             Button {
                 Task { await model.complete() }
             } label: {
@@ -206,6 +216,8 @@ struct ReminderExperienceView: View {
                 in: RoundedRectangle(cornerRadius: 20, style: .continuous)
             )
             .shadow(color: JomadoTheme.cyan.opacity(0.28), radius: 14, y: 8)
+            .disabled(!model.reminderActionsAvailable)
+            .opacity(model.reminderActionsAvailable ? 1 : 0.45)
 
             if let snoozeMinutes = model.activeSnoozeMinutes {
                 Button {
@@ -222,6 +234,8 @@ struct ReminderExperienceView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(JomadoTheme.navy)
                 .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .disabled(!model.reminderActionsAvailable)
+                .opacity(model.reminderActionsAvailable ? 1 : 0.45)
             } else if let message = model.snoozeUnavailableMessage {
                 Label(message, systemImage: "clock.badge.xmark")
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
@@ -236,6 +250,8 @@ struct ReminderExperienceView: View {
             .font(.system(.subheadline, design: .rounded, weight: .semibold))
             .foregroundStyle(JomadoTheme.secondaryText)
             .frame(minHeight: 44)
+            .disabled(!model.reminderActionsAvailable)
+            .opacity(model.reminderActionsAvailable ? 1 : 0.45)
 
             Text("Closing, dismissing, or snoozing never counts as completion.")
                 .font(.system(.caption, design: .rounded))

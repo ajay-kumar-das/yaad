@@ -5,12 +5,21 @@ import UserNotificationsUI
 
 @MainActor
 final class NotificationViewController: UIViewController, UNNotificationContentExtension {
-    private var hostingController: UIHostingController<AnyView>?
+    private var hostingController: UIHostingController<NotificationMascotView>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
-        preferredContentSize = CGSize(width: 0, height: 238)
+        view.backgroundColor = .systemBackground
+        preferredContentSize = CGSize(width: 0, height: 190)
+
+        install(
+            rootView: NotificationMascotView(
+                title: "Jomado",
+                message: "Your routine is ready.",
+                routineType: .generic,
+                mascot: .momo
+            )
+        )
     }
 
     func didReceive(_ notification: UNNotification) {
@@ -24,20 +33,19 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
             ?? CompanionMascot.preferred(for: routineType)
 
         install(
-            rootView: AnyView(
-                NotificationMascotView(
-                    title: content.title,
-                    message: content.body,
-                    routineType: routineType,
-                    mascot: mascot
-                )
+            rootView: NotificationMascotView(
+                title: content.title.isEmpty ? "Jomado" : content.title,
+                message: content.body.isEmpty ? "Your routine is ready." : content.body,
+                routineType: routineType,
+                mascot: mascot
             )
         )
     }
 
-    private func install(rootView: AnyView) {
+    private func install(rootView: NotificationMascotView) {
         if let hostingController {
             hostingController.rootView = rootView
+            hostingController.view.setNeedsLayout()
             return
         }
 
@@ -75,20 +83,20 @@ private struct NotificationMascotView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(jomadoHex: routineType.accentHex).opacity(0.20),
-                    .white
+                    Color(jomadoHex: routineType.accentHex).opacity(0.22),
+                    Color.white
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 MomoArtwork(
                     mascotID: mascot.rawValue,
                     expression: expression,
                     accessibilityLabel: "\(mascot.displayName) for \(routineType.displayName)"
                 )
-                .frame(width: 110, height: 110)
+                .frame(width: 104, height: 104)
 
                 VStack(alignment: .leading, spacing: 7) {
                     Label(routineType.displayName, systemImage: routineType.symbolName)
@@ -110,6 +118,8 @@ private struct NotificationMascotView: View {
             }
             .padding(16)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .background(Color.white)
+        .accessibilityElement(children: .combine)
     }
 }

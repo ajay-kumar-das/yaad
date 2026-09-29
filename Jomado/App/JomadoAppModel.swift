@@ -16,6 +16,8 @@ final class JomadoAppModel: ObservableObject {
     @Published private(set) var activeSnoozeMinutes: Int?
     @Published private(set) var snoozeUnavailableMessage: String?
     @Published private(set) var activeMascotID = CompanionMascot.momo.rawValue
+    @Published private(set) var reminderActionsAvailable = true
+    @Published private(set) var reminderActionAvailableAt: Date?
     @Published var isReminderPresented = false
     @Published var selectedTab: JomadoTab = .today
     @Published private(set) var systemMessage: String?
@@ -31,6 +33,15 @@ final class JomadoAppModel: ObservableObject {
 
     var liveActivitiesEnabled: Bool {
         liveActivityCoordinator.activitiesEnabled
+    }
+
+    var reminderActionLockText: String? {
+        guard
+            !reminderActionsAvailable,
+            let reminderActionAvailableAt
+        else { return nil }
+
+        return "Actions unlock at \(reminderActionAvailableAt.formatted(date: .omitted, time: .shortened)) â€” the final 10% before this reminder."
     }
 
     init(now: Date = .now) {
@@ -202,6 +213,10 @@ final class JomadoAppModel: ObservableObject {
 
     func complete() async {
         guard !occurrence.status.isTerminal else { return }
+        guard reminderActionsAvailable else {
+            systemMessage = reminderActionLockText ?? "This reminder is not actionable yet."
+            return
+        }
 
         do {
             let verifier = verificationRegistry.verifier(for: occurrence.routineType)
@@ -251,10 +266,15 @@ final class JomadoAppModel: ObservableObject {
             presentation: presentation,
             immediate: false
         )
+        await routineCoordinator?.reconcile()
     }
 
     func remindLater(closeAfter: Bool = true) async {
         guard !occurrence.status.isTerminal else { return }
+        guard reminderActionsAvailable else {
+            systemMessage = reminderActionLockText ?? "This reminder is not actionable yet."
+            return
+        }
         guard let minutes = activeSnoozeMinutes, snoozeUnavailableMessage == nil else {
             systemMessage = snoozeUnavailableMessage
                 ?? "Remind later is unavailable for this routine."
@@ -304,6 +324,10 @@ final class JomadoAppModel: ObservableObject {
 
     func skip() async {
         guard !occurrence.status.isTerminal else { return }
+        guard reminderActionsAvailable else {
+            systemMessage = reminderActionLockText ?? "This reminder is not actionable yet."
+            return
+        }
 
         var persistedUpdateApplied = false
         if let coordinator = routineCoordinator {
@@ -330,6 +354,7 @@ final class JomadoAppModel: ObservableObject {
             presentation: presentation,
             immediate: true
         )
+        await routineCoordinator?.reconcile()
         isReminderPresented = false
     }
 
@@ -479,6 +504,7 @@ final class JomadoAppModel: ObservableObject {
                             presentation: presentation,
                             immediate: false
                         )
+                        await routineCoordinator?.reconcile()
                     }
                     return true
                 }
@@ -512,19 +538,31 @@ final class JomadoAppModel: ObservableObject {
     }
 
     private func refreshPresentation(at now: Date, force: Bool = false) async {
-        let stage = ReminderUrgencyStage.resolve(
-            dueDate: occurrence.dueDate,
-            now: now,
-            isCompleted: occurrence.status == .completed
-        )
-        guard force || stage != presentation.stage else { return }
-
         var storedRoutine: RoutineEntity?
         if let coordinator = routineCoordinator {
             storedRoutine = try? coordinator.routine(for: occurrence.routineID)
         } else {
             storedRoutine = nil
         }
+
+        if let storedRoutine {
+            let availableAt = RoutineSchedulePlanner.actionAvailableAt(
+                for: storedRoutine.instance,
+                occurrenceDate: occurrence.dueDate
+            )
+            reminderActionAvailableAt = availableAt
+            reminderActionsAvailable = now >= availableAt
+        } else {
+            reminderActionAvailableAt = occurrence.dueDate
+            reminderActionsAvailable = now >= occurrence.dueDate
+        }
+
+        let stage = ReminderUrgencyStage.resolve(
+            dueDate: occurrence.dueDate,
+            now: now,
+            isCompleted: occurrence.status == .completed
+        )
+        guard force || stage != presentation.stage else { return }
 
         if let storedRoutine {
             if !storedRoutine.smartSnoozeEnabled {

@@ -61,6 +61,74 @@ enum RoutineSchedulePlanner {
         return result.sorted()
     }
 
+    static let earlyActionFraction = 0.10
+
+    static func actionAvailableAt(
+        for routine: RoutineInstance,
+        occurrenceDate: Date,
+        calendar: Calendar = .current
+    ) -> Date {
+        let interval = nominalIntervalSeconds(
+            for: routine,
+            around: occurrenceDate,
+            calendar: calendar
+        )
+        return occurrenceDate.addingTimeInterval(-(interval * earlyActionFraction))
+    }
+
+    static func canTakeAction(
+        for routine: RoutineInstance,
+        occurrenceDate: Date,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> Bool {
+        now >= actionAvailableAt(
+            for: routine,
+            occurrenceDate: occurrenceDate,
+            calendar: calendar
+        )
+    }
+
+    private static func nominalIntervalSeconds(
+        for routine: RoutineInstance,
+        around occurrenceDate: Date,
+        calendar: Calendar
+    ) -> TimeInterval {
+        switch routine.schedule {
+        case .interval(_, _, let everyMinutes, _):
+            return TimeInterval(max(1, everyMinutes) * 60)
+
+        case .fixed:
+            let oneSecondBefore = occurrenceDate.addingTimeInterval(-1)
+            let lookback = calendar.date(byAdding: .day, value: -8, to: occurrenceDate)
+                ?? occurrenceDate.addingTimeInterval(-8 * 86_400)
+
+            if let previous = upcomingDates(
+                for: routine,
+                from: lookback,
+                through: oneSecondBefore,
+                calendar: calendar
+            ).last {
+                return max(60, occurrenceDate.timeIntervalSince(previous))
+            }
+
+            let oneSecondAfter = occurrenceDate.addingTimeInterval(1)
+            let lookahead = calendar.date(byAdding: .day, value: 8, to: occurrenceDate)
+                ?? occurrenceDate.addingTimeInterval(8 * 86_400)
+
+            if let next = upcomingDates(
+                for: routine,
+                from: oneSecondAfter,
+                through: lookahead,
+                calendar: calendar
+            ).first {
+                return max(60, next.timeIntervalSince(occurrenceDate))
+            }
+
+            return 24 * 60 * 60
+        }
+    }
+
     static func occurrenceKey(routineID: UUID, date: Date, calendar: Calendar = .current) -> String {
         let parts = calendar.dateComponents(in: calendar.timeZone, from: date)
         return String(

@@ -81,6 +81,59 @@ final class RoutineSchedulePlannerTests: XCTestCase {
         XCTAssertEqual(calendar.component(.day, from: dates[2]), 29)
     }
 
+    func testActionsUnlockOnlyInFinalTenPercentOfInterval() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let routine = RoutineDraft(
+            type: .hydration,
+            name: "Hydration",
+            schedule: .interval(
+                start: LocalTime(hour: 8, minute: 0),
+                end: LocalTime(hour: 22, minute: 0),
+                everyMinutes: 120,
+                weekdays: Set(Weekday.allCases)
+            ),
+            deliveryMode: .companionOnly,
+            personality: .playful,
+            intensity: .balanced,
+            smartSnoozeEnabled: true,
+            snoozeMinutes: 10,
+            maxSnoozes: 3
+        ).materialize()
+
+        let due = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 28, hour: 18))
+        )
+        let expectedOpen = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 28, hour: 17, minute: 48))
+        )
+
+        let availableAt = RoutineSchedulePlanner.actionAvailableAt(
+            for: routine,
+            occurrenceDate: due,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(availableAt, expectedOpen)
+        XCTAssertFalse(
+            RoutineSchedulePlanner.canTakeAction(
+                for: routine,
+                occurrenceDate: due,
+                now: expectedOpen.addingTimeInterval(-1),
+                calendar: calendar
+            )
+        )
+        XCTAssertTrue(
+            RoutineSchedulePlanner.canTakeAction(
+                for: routine,
+                occurrenceDate: due,
+                now: expectedOpen,
+                calendar: calendar
+            )
+        )
+    }
+
     func testOccurrenceKeyIsStableForSameLocalSlot() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Kolkata"))
