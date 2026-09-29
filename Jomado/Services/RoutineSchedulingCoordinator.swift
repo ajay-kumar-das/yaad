@@ -150,7 +150,10 @@ final class RoutineSchedulingCoordinator {
                 }
             }
             desired.sort { $0.date < $1.date }
-            desired = Array(desired.prefix(maximumPrimaryNotifications))
+            desired = Self.fairPrimarySelection(
+                desired,
+                limit: maximumPrimaryNotifications
+            )
 
             let desiredKeys = Set(desired.map(\.key))
             let existingFuture = try fetchOpenOccurrences(from: now.addingTimeInterval(-60))
@@ -708,6 +711,43 @@ final class RoutineSchedulingCoordinator {
             sortBy: [SortDescriptor(\.scheduledAt)]
         )
         return try modelContext.fetch(descriptor).filter { !$0.status.isTerminal }
+    }
+
+    static func fairPrimarySelection(
+        _ desired: [(routine: RoutineEntity, date: Date, key: String)],
+        limit: Int
+    ) -> [(routine: RoutineEntity, date: Date, key: String)] {
+        guard limit > 0 else { return [] }
+        guard desired.count > limit else { return desired }
+
+        // Reserve each routine's earliest occurrence before filling the
+        // remaining notification budget chronologically. This prevents a
+        // high-frequency routine from starving lower-frequency routines.
+        var representedRoutineIDs = Set<UUID>()
+        var selected: [(routine: RoutineEntity, date: Date, key: String)] = []
+        var remainder: [(routine: RoutineEntity, date: Date, key: String)] = []
+
+        for item in desired {
+            if selected.count < limit,
+               representedRoutineIDs.insert(item.routine.id).inserted {
+                selected.append(item)
+            } else {
+                remainder.append(item)
+            }
+        }
+
+        let remainingCapacity = limit - selected.count
+        if remainingCapacity > 0 {
+            selected.append(contentsOf: remainder.prefix(remainingCapacity))
+        }
+
+        selected.sort {
+            if $0.date != $1.date {
+                return $0.date < $1.date
+            }
+            return $0.key < $1.key
+        }
+        return selected
     }
 
     private func fetchUnresolvedOccurrences() throws -> [ReminderOccurrenceEntity] {
