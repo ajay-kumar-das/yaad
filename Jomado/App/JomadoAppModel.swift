@@ -81,6 +81,14 @@ final class JomadoAppModel: ObservableObject {
         await drainExternalEvents()
     }
 
+    func resumeFromBackground() async {
+        guard isBootstrapped else { return }
+
+        await drainExternalEvents()
+        await routineCoordinator?.reconcile()
+        await refreshPresentation(at: .now, force: true)
+    }
+
     func drainExternalEvents() async {
         for externalEvent in JomadoExternalEventQueue.pendingEvents() {
             let action: NotificationActionKind = switch externalEvent.action {

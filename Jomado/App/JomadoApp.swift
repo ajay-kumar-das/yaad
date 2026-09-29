@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct JomadoApp: App {
     @UIApplicationDelegateAdaptor(JomadoAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = JomadoAppModel()
 
     private let modelContainer: ModelContainer
@@ -43,6 +44,12 @@ struct JomadoApp: App {
                     await model.bootstrap()
                 }
                 .onOpenURL { model.handle(url: $0) }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task {
+                        await model.resumeFromBackground()
+                    }
+                }
         }
         .modelContainer(modelContainer)
     }
