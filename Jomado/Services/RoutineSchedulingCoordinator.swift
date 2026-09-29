@@ -222,14 +222,14 @@ final class RoutineSchedulingCoordinator {
                     )
 
                     do {
-                        try await liveActivityCoordinator.start(
+                        try liveActivityCoordinator.schedule(
                             occurrence: domain,
                             presentation: livePresentation,
                             mascotID: mascotID
                         )
                     } catch {
                         #if DEBUG
-                        print("Live Activity start failed for \(entity.id): \(error)")
+                        print("Live Activity scheduling failed for \(entity.id): \(error)")
                         #endif
                     }
                 } else if existingLiveActivityIDs.contains(entity.id) {

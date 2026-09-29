@@ -415,15 +415,22 @@ final class JomadoAppModel: ObservableObject {
     }
 
     func startLiveActivity() async {
+        guard liveActivityCoordinator.activitiesEnabled else {
+            systemMessage = "Live Activities are disabled in iOS Settings for Jomado."
+            return
+        }
+
         do {
             try await liveActivityCoordinator.start(
                 occurrence: occurrence,
                 presentation: presentation,
                 mascotID: activeMascotID
             )
-            systemMessage = liveActivityCoordinator.activitiesEnabled
-                ? "The Jomado Live Activity is active."
-                : "Live Activities are disabled in system settings."
+            if let state = liveActivityCoordinator.stateDescription(for: occurrence.id) {
+                systemMessage = "Live Activity request accepted by iOS (\(state)). Lock the phone or check Dynamic Island."
+            } else {
+                systemMessage = "iOS accepted the Live Activity request, but Jomado could not find the activity afterward."
+            }
         } catch {
             systemMessage = "The Live Activity could not start: \(error.localizedDescription)"
         }

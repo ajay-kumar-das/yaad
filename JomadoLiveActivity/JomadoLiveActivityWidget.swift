@@ -10,7 +10,7 @@ struct JomadoLiveActivityWidget: Widget {
                 .activitySystemActionForegroundColor(LivePalette.navy)
                 .widgetURL(deepLink(for: context.attributes.occurrenceID))
         } dynamicIsland: { context in
-            let stage = effectiveStage(for: context)
+            let stage = context.state.stage
             let accent = Color(jomadoHex: stage.accentHex)
 
             return DynamicIsland {
@@ -35,7 +35,8 @@ struct JomadoLiveActivityWidget: Widget {
                     LiveStatusText(
                         dueDate: context.state.dueDate,
                         isCompleted: context.state.isCompleted,
-                        width: 64
+                        width: 88,
+                        showsLateLabel: true
                     )
                         .font(.system(.caption, design: .rounded, weight: .bold))
                         .foregroundStyle(accent)
@@ -44,7 +45,10 @@ struct JomadoLiveActivityWidget: Widget {
 
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 7) {
-                        UrgencyRail(stage: stage)
+                        LiveUrgencyRail(
+                            dueDate: context.state.dueDate,
+                            isCompleted: context.state.isCompleted
+                        )
                         Label(
                             context.state.isCompleted ? "Completed" : "Open Jomado to respond",
                             systemImage: context.state.isCompleted ? "checkmark.circle.fill" : "arrow.up.forward.app"
@@ -60,7 +64,8 @@ struct JomadoLiveActivityWidget: Widget {
                 LiveStatusText(
                     dueDate: context.state.dueDate,
                     isCompleted: context.state.isCompleted,
-                    width: 46
+                    width: 46,
+                    showsLateLabel: false
                 )
                     .font(.system(.caption2, design: .rounded, weight: .bold))
                     .foregroundStyle(accent)
@@ -79,15 +84,6 @@ struct JomadoLiveActivityWidget: Widget {
         }
     }
 
-    private func effectiveStage(
-        for context: ActivityViewContext<JomadoActivityAttributes>
-    ) -> ReminderUrgencyStage {
-        if context.isStale && context.state.stage == .normal {
-            return .lightOverdue
-        }
-        return context.state.stage
-    }
-
     private func deepLink(for occurrenceID: String) -> URL? {
         URL(string: "jomado://occurrence/\(occurrenceID)")
     }
@@ -100,10 +96,7 @@ private struct JomadoLockScreenActivityView: View {
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
 
     private var stage: ReminderUrgencyStage {
-        if context.isStale && context.state.stage == .normal {
-            return .lightOverdue
-        }
-        return context.state.stage
+        context.state.stage
     }
 
     private var accent: Color { Color(jomadoHex: stage.accentHex) }
@@ -120,7 +113,8 @@ private struct JomadoLockScreenActivityView: View {
                 LiveStatusText(
                     dueDate: context.state.dueDate,
                     isCompleted: context.state.isCompleted,
-                    width: 64
+                    width: 92,
+                    showsLateLabel: true
                 )
                     .font(.system(.caption, design: .rounded, weight: .bold))
                     .foregroundStyle(accent)
@@ -147,12 +141,15 @@ private struct JomadoLockScreenActivityView: View {
                 LiveMomoArtwork(mascotID: context.attributes.mascotID, expression: context.state.expression, size: 82)
             }
 
-            UrgencyRail(stage: stage)
+            LiveUrgencyRail(
+                dueDate: context.state.dueDate,
+                isCompleted: context.state.isCompleted
+            )
 
             HStack {
-                Text(stage.label)
+                Text(context.state.isCompleted ? "Completed" : "Delay increases until 20 min")
                     .font(.system(.caption2, design: .rounded, weight: .bold))
-                    .foregroundStyle(accent)
+                    .foregroundStyle(context.state.isCompleted ? LivePalette.success : accent)
                 Spacer()
                 Label(
                     context.state.isCompleted ? "Great job" : "Tap to respond",
@@ -169,7 +166,7 @@ private struct JomadoLockScreenActivityView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Jomado, \(context.attributes.routineName), \(stage.label). \(context.state.message)"
+            "Jomado, \(context.attributes.routineName). \(context.state.message). Delay timer is shown on screen."
         )
     }
 }
@@ -178,44 +175,68 @@ private struct LiveStatusText: View {
     let dueDate: Date
     let isCompleted: Bool
     let width: CGFloat
+    let showsLateLabel: Bool
 
     var body: some View {
         Group {
             if isCompleted {
                 Text("Done")
             } else {
-                Text(dueDate, style: .timer)
-                    .monospacedDigit()
-                    .accessibilityLabel("Reminder timing")
+                HStack(spacing: 3) {
+                    Text(dueDate, style: .timer)
+                        .monospacedDigit()
+                    if showsLateLabel {
+                        Text("late")
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Time since reminder was due")
             }
         }
         .frame(width: width, alignment: .trailing)
     }
 }
 
-private struct UrgencyRail: View {
-    let stage: ReminderUrgencyStage
+private struct LiveUrgencyRail: View {
+    let dueDate: Date
+    let isCompleted: Bool
 
-    private var filledCount: Int {
-        switch stage {
-        case .normal: 1
-        case .lightOverdue: 2
-        case .mediumOverdue: 3
-        case .redZone, .completed: 4
-        }
+    private var escalationEnd: Date {
+        dueDate.addingTimeInterval(20 * 60)
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<4, id: \.self) { index in
-                Capsule()
-                    .fill(index < filledCount ? Color(jomadoHex: stage.accentHex) : Color.gray.opacity(0.18))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 5)
+        VStack(spacing: 5) {
+            LinearGradient(
+                colors: [
+                    LivePalette.cyan,
+                    LivePalette.success,
+                    LivePalette.yellow,
+                    LivePalette.orange,
+                    LivePalette.red
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 6)
+            .clipShape(Capsule())
+
+            if !isCompleted {
+                ProgressView(
+                    timerInterval: dueDate...escalationEnd,
+                    countsDown: false
+                )
+                .labelsHidden()
+                .tint(LivePalette.navy.opacity(0.72))
+                .frame(height: 4)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Urgency stage, \(stage.label)")
+        .accessibilityLabel(
+            isCompleted
+                ? "Completed"
+                : "Delay urgency progresses from blue through green, yellow, orange, and red over twenty minutes"
+        )
     }
 }
 
@@ -244,5 +265,9 @@ private struct LiveMomoArtwork: View {
 private enum LivePalette {
     static let navy = Color(jomadoHex: "071D4A")
     static let secondaryText = Color(jomadoHex: "7284A4")
+    static let cyan = Color(jomadoHex: "13BDEB")
     static let success = Color(jomadoHex: "34C759")
+    static let yellow = Color(jomadoHex: "F7C948")
+    static let orange = Color(jomadoHex: "FF8A2B")
+    static let red = Color(jomadoHex: "FF4D5A")
 }

@@ -16,7 +16,7 @@ struct LiveActivityCoordinator: Sendable {
         let state = makeState(occurrence: occurrence, presentation: presentation)
         let content = ActivityContent(
             state: state,
-            staleDate: occurrence.dueDate.addingTimeInterval(180),
+            staleDate: nil,
             relevanceScore: 80
         )
 
@@ -43,7 +43,7 @@ struct LiveActivityCoordinator: Sendable {
         let state = makeState(occurrence: occurrence, presentation: presentation)
         let content = ActivityContent(
             state: state,
-            staleDate: occurrence.dueDate.addingTimeInterval(180),
+            staleDate: nil,
             relevanceScore: 70
         )
         let alert = AlertConfiguration(
@@ -71,7 +71,7 @@ struct LiveActivityCoordinator: Sendable {
         let state = makeState(occurrence: occurrence, presentation: presentation)
         let content = ActivityContent(
             state: state,
-            staleDate: presentation.stage == .completed ? nil : occurrence.dueDate.addingTimeInterval(180),
+            staleDate: nil,
             relevanceScore: presentation.stage == .redZone ? 100 : 80
         )
         await activity.update(content)
@@ -102,6 +102,19 @@ struct LiveActivityCoordinator: Sendable {
                 UUID(uuidString: $0.attributes.occurrenceID)
             }
         )
+    }
+
+    func stateDescription(for occurrenceID: UUID) -> String? {
+        guard let activity = activity(for: occurrenceID) else { return nil }
+
+        return switch activity.activityState {
+        case .pending: "pending"
+        case .active: "active"
+        case .stale: "stale"
+        case .ended: "ended"
+        case .dismissed: "dismissed"
+        @unknown default: "unknown"
+        }
     }
 
     func cancelAll(except keepOccurrenceIDs: Set<UUID>) async {
